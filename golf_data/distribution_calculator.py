@@ -6,6 +6,24 @@ import matplotlib.pyplot as plt
 
 PI = np.pi
 
+N_REGULAR_EVENTS = 20
+N_ELEVATED_EVENTS = 5
+
+ROUNDS_PER_EVENT = 4
+CUT_AFTER_ROUND = 2
+
+FIELD_SIZE_REGULAR = 156
+FIELD_SIZE_ELEVATED = 70
+
+CUT_RULE_REGULAR = "top65_ties"          # "top65_ties" or "none"
+CUT_RULE_ELEVATED = "top50_plus_10shots" # "top50_plus_10shots" or "none"
+
+ELEVATED_POINTS_MULTIPLIER = 1.0
+
+BASE_POINTS_FIRST_REG = 500.0
+BASE_POINTS_FIRST_ELEV = 700.0
+BASE_POINTS_DECAY = 0.93
+
 def compute_player_stats(csv_paths, player_col, value_col, min_avg_rounds=20):
     """
     Compute per-player mean, variance, and skew across multiple season CSVs.
@@ -211,24 +229,6 @@ def simulate_and_compare_player(player_moments, player_params, player_id, n_roun
 
     return out
 
-N_REGULAR_EVENTS = 20
-N_ELEVATED_EVENTS = 5
-
-ROUNDS_PER_EVENT = 4
-CUT_AFTER_ROUND = 2
-
-FIELD_SIZE_REGULAR = 156
-FIELD_SIZE_ELEVATED = 70
-
-CUT_RULE_REGULAR = "top65_ties"          # "top65_ties" or "none"
-CUT_RULE_ELEVATED = "top50_plus_10shots" # "top50_plus_10shots" or "none"
-
-ELEVATED_POINTS_MULTIPLIER = 1.0
-
-BASE_POINTS_FIRST_REG = 500.0
-BASE_POINTS_FIRST_ELEV = 700.0
-BASE_POINTS_DECAY = 0.93
-
 def build_simple_points_table(n_finishers, first_points):
     pts = []
     p = float(first_points)
@@ -396,3 +396,4 @@ comparison = simulate_and_compare_player(moments, player_params, player_id="Scot
 
 season = simulate_season(player_params, pids)
 print(season[0][:25])
+
