@@ -396,4 +396,4 @@ print(comparison)
 
 season = simulate_season(player_params, pids)
 
-print(season[0][:25])
+print(season[0][:26])
