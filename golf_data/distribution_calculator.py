@@ -392,8 +392,8 @@ moments = compute_player_stats(
 player_params, pids = build_player_generators(moments)
 
 comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
-#print(comparison)
+print(comparison)
 
 season = simulate_season(player_params, pids)
-print(season[0][:25])
 
+print(season[0][:25])
