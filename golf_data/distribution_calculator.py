@@ -151,7 +151,6 @@ def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance"
     Returns dict: player_id -> (a, loc, scale)
     """
     params = {}
-    pids = []
     for _, row in player_stats_df.iterrows():
         pid = row["Player"]
         m = float(row[mean_col])
@@ -159,10 +158,10 @@ def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance"
         s = float(row[skew_col])
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
         params[pid] = (a, loc, scale)
-        pids.append(pid)
-    return params, pids
+        
+    return params
 
-def sample_round_scores_for_players(player_params, player_ids, n_rounds, rng=None):
+def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     """
     Draw round-by-round scores for multiple players.
 
@@ -170,12 +169,10 @@ def sample_round_scores_for_players(player_params, player_ids, n_rounds, rng=Non
     ----------
     player_params : dict
         Mapping: player_id -> (a, loc, scale)
-    player_ids : list or array
-        Player IDs to simulate (field for this tournament).
     n_rounds : int
         Number of rounds to simulate.
-    rng : numpy.random.Generator, optional
-        Random number generator.
+    player_ids : list or array
+        Player IDs to simulate (field for this tournament).
 
     Returns
     -------
@@ -183,8 +180,8 @@ def sample_round_scores_for_players(player_params, player_ids, n_rounds, rng=Non
         Array of shape (num_players, n_rounds),
         where each row corresponds to one player.
     """
-    if rng is None:
-        rng = np.random.default_rng()
+    if player_ids == None:
+        player_ids = player_params.keys()
 
     num_players = len(player_ids)
     scores = np.zeros((num_players, n_rounds))
@@ -195,8 +192,7 @@ def sample_round_scores_for_players(player_params, player_ids, n_rounds, rng=Non
             a,
             loc=loc,
             scale=scale,
-            size=n_rounds,
-            random_state=rng,
+            size=n_rounds
         )
 
     return scores
@@ -286,9 +282,8 @@ def apply_cut(scores_after_two_rounds, rule):
 
     raise ValueError("Unknown cut rule: " + str(rule))
 
-def simulate_season(player_params, pids, rng=None):
-    if rng is None:
-        rng = np.random.default_rng()
+def simulate_season(player_params):
+    pids = player_params.keys()
 
     # Normalize PID types ONCE
     pids = [str(pid) for pid in pids]
@@ -303,10 +298,11 @@ def simulate_season(player_params, pids, rng=None):
     event_results = []
 
     def run_event(event_type, field_size, cut_rule):
-        field = rng.choice(pids, size=field_size, replace=False).tolist()
+        #field = rng.choice(pids, size=field_size, replace=False).tolist()
+        field = pids
 
         # --- simulate first two rounds ---
-        scores_pre = sample_round_scores_for_players(player_params, field, CUT_AFTER_ROUND, rng=rng)
+        scores_pre = sample_round_scores_for_players(player_params, CUT_AFTER_ROUND, field)
         totals_2r = scores_pre.sum(axis=1)
 
         df2 = pd.DataFrame({
@@ -319,7 +315,7 @@ def simulate_season(player_params, pids, rng=None):
 
         # --- simulate remaining rounds for survivors ---
         remaining_rounds = ROUNDS_PER_EVENT - CUT_AFTER_ROUND
-        scores_post = sample_round_scores_for_players(player_params, survivors, remaining_rounds, rng=rng)
+        scores_post = sample_round_scores_for_players(player_params, remaining_rounds, survivors)
         totals_post = scores_post.sum(axis=1)
 
         # Build final results
@@ -373,11 +369,11 @@ def simulate_season(player_params, pids, rng=None):
     return season_summary, event_results
 
 files = [
-    "yr2021.csv",
-    "yr2022.csv",
-    "yr2023.csv",
-    "yr2024.csv",
-    "yr2025.csv"
+    "golf_data\yr2021.csv",
+    "golf_data\yr2022.csv",
+    "golf_data\yr2023.csv",
+    "golf_data\yr2024.csv",
+    "golf_data\yr2025.csv"
 ]
 
 moments = compute_player_stats(
@@ -389,11 +385,11 @@ moments = compute_player_stats(
 
 #print(moments.head(20))
 
-player_params, pids = build_player_generators(moments)
+player_params = build_player_generators(moments)
 
 comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
 print(comparison)
 
-season = simulate_season(player_params, pids)
+season = simulate_season(player_params)
 
 print(season[0][:26])
