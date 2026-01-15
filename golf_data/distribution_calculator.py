@@ -24,29 +24,45 @@ BASE_POINTS_FIRST_REG = 500.0
 BASE_POINTS_FIRST_ELEV = 700.0
 BASE_POINTS_DECAY = 0.93
 
-def compute_player_stats(csv_paths, player_col, value_col, min_avg_rounds=20):
+def compute_player_stats(
+    csv_paths,
+    player_col,
+    value_col,
+    min_avg_rounds=20,
+    weight_power=1.0,
+    weight_floor=0.0,
+):
     """
-    Compute per-player mean, variance, and skew across multiple season CSVs.
+    Compute per-player mean, variance, skew, and participation-based weights
+    across multiple season CSVs.
 
-    Key detail:
-    - AvgRounds is total rounds across all CSVs divided by number of CSVs.
-    - Filtering is done using AvgRounds >= min_avg_rounds.
+    Key details
+    -----------
+    - AvgRounds = total rounds across all CSVs / number of CSVs
+    - AvgEvents = average number of events per season
+    - Weight is derived from AvgEvents and normalized to sum to 1
 
     Parameters
     ----------
     csv_paths : list
-        List of CSV file paths (e.g., 5 season files).
+        List of CSV file paths (e.g., multiple seasons).
     player_col : str
         Column name that identifies the player.
     value_col : str
-        Column name for the numeric value to analyze (e.g., score, strokes gained, etc.).
-    min_avg_rounds : int, optional
-        Minimum average rounds per year required to keep a player.
+        Column name for the numeric value to analyze (e.g., score).
+    min_avg_rounds : int
+        Minimum average rounds per season required to keep a player.
+    weight_power : float
+        Exponent applied to AvgEvents when building weights.
+        1.0 = literal participation, <1 flattens, >1 amplifies.
+    weight_floor : float
+        Minimum raw weight to assign before normalization (prevents zero-prob players).
 
     Returns
     -------
     pandas.DataFrame
-        Columns: Player, AvgRounds, Mean, Variance, Skew
+        Columns:
+        Player, AvgRounds, AvgEvents, Mean, Variance, Skew, Weight
     """
     if not csv_paths:
         raise ValueError("csv_paths cannot be empty.")
@@ -56,31 +72,39 @@ def compute_player_stats(csv_paths, player_col, value_col, min_avg_rounds=20):
         df = pd.read_csv(path)
 
         if player_col not in df.columns:
-            raise ValueError("Missing column '{}' in file: {}".format(player_col, path))
+            raise ValueError(f"Missing column '{player_col}' in file: {path}")
         if value_col not in df.columns:
-            raise ValueError("Missing column '{}' in file: {}".format(value_col, path))
+            raise ValueError(f"Missing column '{value_col}' in file: {path}")
 
         df = df[[player_col, value_col]].copy()
-
-        # Coerce the value column to numeric; non-numeric becomes NaN
         df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
-
-        # Drop rows missing player id or value
         df = df.dropna(subset=[player_col, value_col])
 
+        # Tag season so we can count events per season
+        df["_season"] = path
         frames.append(df)
 
     all_data = pd.concat(frames, ignore_index=True)
-
     num_seasons = len(csv_paths)
 
+    # --- round-level stats ---
     grouped = all_data.groupby(player_col)[value_col]
 
     total_rounds = grouped.size()
     avg_rounds = total_rounds / float(num_seasons)
 
+    # --- event-level participation ---
+    events_per_season = (
+        all_data
+        .groupby(["_season", player_col])
+        .size()
+        .groupby(player_col)
+        .mean()
+    )
+
     out = pd.DataFrame({
         "AvgRounds": avg_rounds,
+        "AvgEvents": events_per_season,
         "Mean": grouped.mean(),
         "Variance": grouped.var(ddof=1),
         "Skew": grouped.skew(),
@@ -91,8 +115,19 @@ def compute_player_stats(csv_paths, player_col, value_col, min_avg_rounds=20):
     # Filter by AVERAGE rounds per season
     out = out[out["AvgRounds"] >= float(min_avg_rounds)].copy()
 
-    # Optional: sort so highest participation first
-    out = out.sort_values(["Mean", "AvgRounds"], ascending=[True, False]).reset_index(drop=True)
+    # --- build participation-based weights ---
+    raw_weights = out["AvgEvents"].astype(float) ** float(weight_power)
+
+    if weight_floor > 0.0:
+        raw_weights = np.maximum(raw_weights, weight_floor)
+
+    out["Weight"] = raw_weights / raw_weights.sum()
+
+    # Sort: best players first (lower mean score), then higher participation
+    out = out.sort_values(
+        ["Mean", "AvgEvents"],
+        ascending=[True, False]
+    ).reset_index(drop=True)
 
     return out
 
@@ -146,9 +181,9 @@ def skewnorm_params_from_moments(mean, variance, skew):
 
     return a, loc, scale
 
-def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance", skew_col="Skew"):
+def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance", skew_col="Skew", weight_col = "Weight"):
     """
-    Returns dict: player_id -> (a, loc, scale)
+    Returns dict: player_id -> (a, loc, scale, w)
     """
     params = {}
     for _, row in player_stats_df.iterrows():
@@ -157,7 +192,8 @@ def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance"
         v = float(row[var_col])
         s = float(row[skew_col])
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
-        params[pid] = (a, loc, scale)
+        w = float(row[weight_col])
+        params[pid] = (a, loc, scale, w)
         
     return params
 
@@ -187,7 +223,7 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     scores = np.zeros((num_players, n_rounds))
 
     for i, pid in enumerate(player_ids):
-        a, loc, scale = player_params[pid]
+        a, loc, scale, _ = player_params[pid]
         scores[i, :] = skewnorm.rvs(
             a,
             loc=loc,
@@ -200,7 +236,7 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
 def simulate_and_compare_player(player_moments, player_params, player_id, n_rounds=200000, seed=123):
     rng = np.random.default_rng(seed)
 
-    a, loc, scale = player_params[player_id]
+    a, loc, scale, _ = player_params[player_id]
     x = skewnorm.rvs(a, loc=loc, scale=scale, size=n_rounds, random_state=rng)
 
     sim_mean = float(np.mean(x))
@@ -294,12 +330,13 @@ def simulate_season(player_params):
             "Some pids are missing from player_params. Example missing: " + str(missing[:10])
         )
 
+    weights = [player_params[pid][3] for pid in pids]
     season_points = {pid: 0.0 for pid in pids}
     event_results = []
 
     def run_event(event_type, field_size, cut_rule):
-        #field = rng.choice(pids, size=field_size, replace=False).tolist()
-        field = pids
+        rng = np.random.default_rng()
+        field = rng.choice(pids, size=field_size, replace=False, p=weights).tolist()
 
         # --- simulate first two rounds ---
         scores_pre = sample_round_scores_for_players(player_params, CUT_AFTER_ROUND, field)
@@ -381,6 +418,7 @@ moments = compute_player_stats(
     player_col="player",
     value_col="score",
     min_avg_rounds=20,
+    weight_floor=0.05
 )
 
 #print(moments.head(20))
@@ -390,6 +428,7 @@ player_params = build_player_generators(moments)
 comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
 print(comparison)
 
+weights = moments["Weight"]
 season = simulate_season(player_params)
 
 print(season[0][:26])
