@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
 from scipy.stats import skewnorm, skew
+from enum import Enum
 import matplotlib.pyplot as plt
 
 PI = np.pi
@@ -15,14 +16,27 @@ CUT_AFTER_ROUND = 2
 FIELD_SIZE_REGULAR = 156
 FIELD_SIZE_ELEVATED = 70
 
-CUT_RULE_REGULAR = "top65_ties"          # "top65_ties" or "none"
-CUT_RULE_ELEVATED = "top50_plus_10shots" # "top50_plus_10shots" or "none"
-
 ELEVATED_POINTS_MULTIPLIER = 1.0
 
 BASE_POINTS_FIRST_REG = 500.0
 BASE_POINTS_FIRST_ELEV = 700.0
 BASE_POINTS_DECAY = 0.93
+
+class EventType(Enum):
+    REGULAR = "regular"
+    ELEVATED = "elevated"
+
+class CutRule(Enum):
+    NONE = "none"
+    TOP_65_TIES = "top65_ties"
+    TOP_50_PLUS_10_SHOTS = "top50_plus_10shots"
+
+CUT_TOP_65 = 65
+CUT_TOP_50 = 50
+CUT_PLUS_SHOTS = 10.0
+
+PLAYER_ID_COL = "player_id"
+TOTAL_2R_COL = "total_2r"
 
 def compute_player_stats(
     csv_paths,
@@ -131,63 +145,83 @@ def compute_player_stats(
 
     return out
 
-def _skew_from_delta(delta):
+def _skew_from_delta(delta, eps=1e-12):
     """
     Skewness of a skew-normal distribution as a function of delta.
-    delta must be in (-1, 1).
     """
+    base = 1.0 - (2.0 * delta**2) / PI
+
+    if base <= eps:
+        raise ZeroDivisionError(
+            f"Invalid delta={delta}: denominator approaches zero in skew calculation."
+        )
+
     num = ((4.0 - PI) / 2.0) * (delta * np.sqrt(2.0 / PI))**3
-    den = (1.0 - (2.0 * delta**2) / PI)**1.5
+    den = base**1.5
+
     return num / den
 
-def skewnorm_params_from_moments(mean, variance, skew):
+def skewnorm_params_from_moments(mean, variance, skew, eps=1e-8):
     """
     Convert (mean, variance, skewness) into scipy.stats.skewnorm parameters.
-
-    Returns
-    -------
-    a, loc, scale
     """
-    # Defensive handling
-    if variance <= 0 or np.isnan(variance):
-        variance = 1e-6
+    if variance <= 0 or not np.isfinite(variance):
+        raise ValueError(f"Invalid variance: {variance}")
 
-    if np.isnan(skew) or abs(skew) < 1e-8:
-        # Essentially symmetric → normal
-        a = 0.0
-        scale = np.sqrt(variance)
-        loc = mean
-        return a, loc, scale
+    if not np.isfinite(skew):
+        raise ValueError(f"Invalid skew: {skew}")
 
-    # Clip target skew to feasible range
-    delta_min, delta_max = -0.9999, 0.9999
-    skew_min = _skew_from_delta(delta_min)
-    skew_max = _skew_from_delta(delta_max)
+    if abs(skew) < eps:
+        # symmetric → normal
+        return 0.0, mean, np.sqrt(variance)
 
-    target_skew = float(skew)
-    target_skew = max(min(target_skew, skew_max), skew_min)
+    delta_min, delta_max = -0.999, 0.999
 
-    # Root-finding function
+    try:
+        skew_min = _skew_from_delta(delta_min)
+        skew_max = _skew_from_delta(delta_max)
+    except ZeroDivisionError as e:
+        raise RuntimeError(
+            f"Skew-normal boundary failure for mean={mean}, var={variance}, skew={skew}"
+        ) from e
+
+    # The use of target skew here is somewhat contreversial, as there are scenarios where skew falls outside of
+    # the bounds downstream. Another solution could be just to fall back to normal when outside skew bounds.
+    target_skew = max(min(float(skew), skew_max), skew_min)
+
     def root_fn(delta):
         return _skew_from_delta(delta) - target_skew
 
-    # Solve for delta
-    delta = brentq(root_fn, delta_min, delta_max)
+    # The use of a search instead of a close formed solution comes down to the difference between population
+    # vs sample sknewness. Further explanations of this differnce can be found on wikipedia or sci py documentation.
+    try:
+        delta = brentq(root_fn, delta_min, delta_max)
+    except Exception as e:
+        raise RuntimeError(
+            f"Root-finding failed for mean={mean}, var={variance}, skew={skew}"
+        ) from e
 
-    # Convert delta → skewnorm params
-    a = delta / np.sqrt(1.0 - delta**2)
-    scale = np.sqrt(variance / (1.0 - (2.0 * delta**2) / PI))
+    denom_a = 1.0 - delta**2
+    denom_scale = 1.0 - (2.0 * delta**2) / PI
+
+    if denom_a <= eps or denom_scale <= eps:
+        raise ZeroDivisionError(
+            f"Degenerate skew-normal parameters for delta={delta}"
+        )
+
+    a = delta / np.sqrt(denom_a)
+    scale = np.sqrt(variance / denom_scale)
     loc = mean - scale * delta * np.sqrt(2.0 / PI)
 
     return a, loc, scale
 
-def build_player_generators(player_stats_df, mean_col="Mean", var_col="Variance", skew_col="Skew", weight_col = "Weight"):
+def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean", var_col="Variance", skew_col="Skew", weight_col = "Weight"):
     """
     Returns dict: player_id -> (a, loc, scale, w)
     """
     params = {}
     for _, row in player_stats_df.iterrows():
-        pid = row["Player"]
+        pid = row[id_col]
         m = float(row[mean_col])
         v = float(row[var_col])
         s = float(row[skew_col])
@@ -272,70 +306,101 @@ def build_simple_points_table(n_finishers, first_points):
 POINTS_TABLE_REGULAR = build_simple_points_table(FIELD_SIZE_REGULAR, BASE_POINTS_FIRST_REG)
 POINTS_TABLE_ELEVATED = build_simple_points_table(FIELD_SIZE_ELEVATED, BASE_POINTS_FIRST_ELEV)
 
-def get_points_for_rank(event_type, rank):
+def get_points_for_rank(event_type, rank, points_tables):
     """
     rank: 1 = winner, 2 = second, ...
     returns 0 if rank is out of range
+
+    Parameters
+    ----------
+    event_type : EventType
+    rank : int
+    points_tables : dict
+        Mapping: EventType -> list of points by rank (index 0 is rank 1)
+        Example:
+            {
+                EventType.REGULAR: POINTS_TABLE_REGULAR,
+                EventType.ELEVATED: POINTS_TABLE_ELEVATED,
+            }
     """
     if rank < 1:
         raise ValueError("rank must be >= 1")
 
-    if event_type == "regular":
-        table = POINTS_TABLE_REGULAR
-    elif event_type == "elevated":
-        table = POINTS_TABLE_ELEVATED
-    else:
+    if event_type not in points_tables:
         raise ValueError("Unknown event_type: " + str(event_type))
+
+    table = points_tables[event_type]
 
     idx = rank - 1
     if idx >= len(table):
         return 0.0
+
     return float(table[idx])
+
 
 def apply_cut(scores_after_two_rounds, rule):
     """
     scores_after_two_rounds: DataFrame with columns [player_id, total_2r]
     Returns a set of player_ids who make the cut.
+
+    Parameters
+    ----------
+    scores_after_two_rounds : pandas.DataFrame
+    rule : CutRule
     """
-    if rule == "none":
-        return set(scores_after_two_rounds["player_id"].tolist())
+    if rule == CutRule.NONE:
+        return set(scores_after_two_rounds[PLAYER_ID_COL].tolist())
 
-    df = scores_after_two_rounds.sort_values("total_2r", ascending=True).reset_index(drop=True)
+    df = scores_after_two_rounds.sort_values(TOTAL_2R_COL, ascending=True).reset_index(drop=True)
 
-    if rule == "top65_ties":
-        if len(df) <= 65:
-            return set(df["player_id"].tolist())
-        cut_score = float(df.loc[64, "total_2r"])
-        return set(df.loc[df["total_2r"] <= cut_score, "player_id"].tolist())
+    if rule == CutRule.TOP_65_TIES:
+        if len(df) <= CUT_TOP_65:
+            return set(df[PLAYER_ID_COL].tolist())
 
-    if rule == "top50_plus_10shots":
-        if len(df) <= 50:
-            return set(df["player_id"].tolist())
-        leader = float(df.loc[0, "total_2r"])
-        base_cut = float(df.loc[49, "total_2r"])
-        cut_score = max(base_cut, leader + 10.0)
-        return set(df.loc[df["total_2r"] <= cut_score, "player_id"].tolist())
+        cut_idx = CUT_TOP_65 - 1
+        cut_score = float(df.loc[cut_idx, TOTAL_2R_COL])
+
+        return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
+
+    if rule == CutRule.TOP_50_PLUS_10_SHOTS:
+        if len(df) <= CUT_TOP_50:
+            return set(df[PLAYER_ID_COL].tolist())
+
+        leader = float(df.loc[0, TOTAL_2R_COL])
+        base_cut_idx = CUT_TOP_50 - 1
+        base_cut = float(df.loc[base_cut_idx, TOTAL_2R_COL])
+
+        cut_score = max(base_cut, leader + CUT_PLUS_SHOTS)
+
+        return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
 
     raise ValueError("Unknown cut rule: " + str(rule))
 
 def simulate_season(player_params):
-    pids = player_params.keys()
+    # Stable ordering so weights align with pids
+    pids = [str(pid) for pid in list(player_params.keys())]
 
-    # Normalize PID types ONCE
-    pids = [str(pid) for pid in pids]
-
+    # Optional sanity check
     missing = [pid for pid in pids if pid not in player_params]
     if missing:
         raise KeyError(
             "Some pids are missing from player_params. Example missing: " + str(missing[:10])
         )
 
-    weights = [player_params[pid][3] for pid in pids]
+    # Weights assumed normalized and stored as 4th element
+    weights = [float(player_params[pid][3]) for pid in pids]
+
+    points_tables = {
+        EventType.REGULAR: POINTS_TABLE_REGULAR,
+        EventType.ELEVATED: POINTS_TABLE_ELEVATED,
+    }
+
     season_points = {pid: 0.0 for pid in pids}
     event_results = []
 
+    rng = np.random.default_rng()
+
     def run_event(event_type, field_size, cut_rule):
-        rng = np.random.default_rng()
         field = rng.choice(pids, size=field_size, replace=False, p=weights).tolist()
 
         # --- simulate first two rounds ---
@@ -343,8 +408,8 @@ def simulate_season(player_params):
         totals_2r = scores_pre.sum(axis=1)
 
         df2 = pd.DataFrame({
-            "player_id": field,
-            "total_2r": totals_2r,
+            PLAYER_ID_COL: field,
+            TOTAL_2R_COL: totals_2r,
         })
 
         made_cut = apply_cut(df2, cut_rule)
@@ -356,7 +421,7 @@ def simulate_season(player_params):
         totals_post = scores_post.sum(axis=1)
 
         # Build final results
-        surv_totals_2r = df2.set_index("player_id").loc[survivors, "total_2r"].values
+        surv_totals_2r = df2.set_index(PLAYER_ID_COL).loc[survivors, TOTAL_2R_COL].values
         final_totals = surv_totals_2r + totals_post
 
         results_cut = pd.DataFrame({
@@ -365,7 +430,11 @@ def simulate_season(player_params):
         }).sort_values("TotalScore", ascending=True).reset_index(drop=True)
 
         results_cut["FinalRank"] = np.arange(1, len(results_cut) + 1)
-        results_cut["Points"] = [get_points_for_rank(event_type, int(r)) for r in results_cut["FinalRank"]]
+
+        results_cut["Points"] = [
+            get_points_for_rank(event_type, int(r), points_tables)
+            for r in results_cut["FinalRank"]
+        ]
 
         # Players missing the cut get 0 points
         missed = [pid for pid in field if pid not in made_cut]
@@ -388,12 +457,12 @@ def simulate_season(player_params):
 
     # regular season
     for _ in range(N_REGULAR_EVENTS):
-        res = run_event("regular", FIELD_SIZE_REGULAR, CUT_RULE_REGULAR)
+        res = run_event(EventType.REGULAR, FIELD_SIZE_REGULAR, CutRule.TOP_65_TIES)
         event_results.append(res)
 
     # elevated season
     for _ in range(N_ELEVATED_EVENTS):
-        res = run_event("elevated", FIELD_SIZE_ELEVATED, CUT_RULE_ELEVATED)
+        res = run_event(EventType.ELEVATED, FIELD_SIZE_ELEVATED, CutRule.TOP_50_PLUS_10_SHOTS)
         event_results.append(res)
 
     season_summary = pd.DataFrame(
@@ -428,7 +497,6 @@ player_params = build_player_generators(moments)
 comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
 print(comparison)
 
-weights = moments["Weight"]
 season = simulate_season(player_params)
 
 print(season[0][:26])
