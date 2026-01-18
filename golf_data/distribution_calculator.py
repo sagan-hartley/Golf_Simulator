@@ -3,6 +3,7 @@ import pandas as pd
 from scipy.optimize import brentq
 from scipy.stats import skewnorm, skew
 from enum import Enum
+from dataclasses import dataclass
 import matplotlib.pyplot as plt
 
 PI = np.pi
@@ -13,30 +14,205 @@ N_ELEVATED_EVENTS = 5
 ROUNDS_PER_EVENT = 4
 CUT_AFTER_ROUND = 2
 
-FIELD_SIZE_REGULAR = 156
-FIELD_SIZE_ELEVATED = 70
-
 ELEVATED_POINTS_MULTIPLIER = 1.0
 
-BASE_POINTS_FIRST_REG = 500.0
-BASE_POINTS_FIRST_ELEV = 700.0
-BASE_POINTS_DECAY = 0.93
-
-class EventType(Enum):
-    REGULAR = "regular"
-    ELEVATED = "elevated"
-
-class CutRule(Enum):
-    NONE = "none"
-    TOP_65_TIES = "top65_ties"
-    TOP_50_PLUS_10_SHOTS = "top50_plus_10shots"
-
+CUT_TOP_70 = 70
 CUT_TOP_65 = 65
+CUT_TOP_60 = 60
 CUT_TOP_50 = 50
 CUT_PLUS_SHOTS = 10.0
 
+class EventType(Enum):
+    REGULAR = "regular"
+    SIGNATURE = "signature"
+    MAJOR_PLAYERS = "major_players"
+    ADDITIONAL = "additional"
+    PLAYOFFS_2026_APPROX_750 = "playoffs_2026_approx_750"
+    ZURICH_TEAM_EACH_PLAYER = "zurich_team_each_player" # code not worked to simulate this yet
+
+class CutRule(Enum):
+    NONE = "none"
+    TOP_70_TIES = "top70_ties"
+    TOP_65_TIES = "top65_ties"
+    TOP_60_TIES = "top60_ties"
+    TOP_50_TIES = "top50_ties"
+    TOP_50_PLUS_10_SHOTS = "top50_plus_10shots"
+
+@dataclass()
+class TournamentConfig:
+    points_type: EventType
+    cut_rule: CutRule
+    field_size: int
+
+class TournamentType(Enum):
+    REGULAR = TournamentConfig(
+        points_type=EventType.REGULAR,
+        cut_rule=CutRule.TOP_65_TIES,
+        field_size=156,
+    )
+
+    SIGNATURE_NO_CUT = TournamentConfig(
+        points_type=EventType.SIGNATURE,
+        cut_rule=CutRule.NONE,
+        field_size=70,
+    )
+
+    SIGNATURE_CUT = TournamentConfig(
+        points_type=EventType.SIGNATURE,
+        cut_rule=CutRule.TOP_50_PLUS_10_SHOTS,
+        field_size=70,
+    )
+
+    MAJOR_MASTERS = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,
+        cut_rule=CutRule.TOP_50_TIES,
+        field_size=156,
+    )
+
+    MAJOR_US_OPEN = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,
+        cut_rule=CutRule.TOP_60_TIES,
+        field_size=156,
+    )
+
+    MAJOR_PGA = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,
+        cut_rule=CutRule.TOP_70_TIES,
+        field_size=156,
+    )
+
+    MAJOR_OPEN = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,
+        cut_rule=CutRule.TOP_70_TIES,
+        field_size=156,
+    )
+
+    PLAYERS = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,
+        cut_rule=CutRule.TOP_65_TIES,
+        field_size=156,
+    )
+
+    PLAYOFF = TournamentConfig(
+        points_type=EventType.MAJOR_PLAYERS,  # your current simplification
+        cut_rule=CutRule.NONE,
+        field_size=70,
+    )
+
 PLAYER_ID_COL = "player_id"
 TOTAL_2R_COL = "total_2r"
+
+# ---- Regular / Signature / Majors+Players / Additional tables (positions 1..85) ----
+
+POINTS_TABLE_REGULAR_500 = [
+    500, 300, 190, 135, 110, 100, 90, 85, 80, 75,
+    70, 65, 60, 57, 55, 53, 51, 49, 47, 45,
+    43, 41, 39, 37, 35.5, 34, 32.5, 31, 29.5, 28,
+    26.5, 25, 23.5, 22, 21, 20, 19, 18, 17, 16,
+    15, 14, 13, 12, 11, 10.5, 10, 9.5, 9, 8.5,
+    8, 7.5, 7, 6.5, 6, 5.8, 5.6, 5.4, 5.2, 5.0,
+    4.8, 4.6, 4.4, 4.2, 4.0, 3.8, 3.6, 3.4, 3.2, 3.0,
+    2.9, 2.8, 2.7, 2.6, 2.5, 2.4, 2.3, 2.2, 2.1, 2.0,
+    1.9, 1.8, 1.7, 1.6, 1.5
+]
+
+POINTS_TABLE_MAJOR_PLAYERS_750 = [
+    750, 500, 350, 325, 300, 270, 250, 225, 200, 175,
+    155, 135, 115, 105, 95, 85, 75, 70, 65, 60,
+    55, 53, 51, 49, 47, 45, 43, 41, 39, 37,
+    35, 33, 31, 29, 27, 26, 25, 24, 23, 22,
+    21, 20.25, 19.5, 18.75, 18, 17.25, 16.5, 15.75, 15, 14.25,
+    13.5, 13, 12.5, 12, 11.5, 11, 10.5, 10, 9.5, 9,
+    8.5, 8.25, 8, 7.75, 7.5, 7.25, 7, 6.75, 6.5, 6.25,
+    6, 5.75, 5.5, 5.25, 5, 4.75, 4.5, 4.25, 4, 3.75,
+    3.5, 3.25, 3, 2.75, 2.5
+]
+
+POINTS_TABLE_SIGNATURE_700 = [
+    700, 400, 350, 325, 300, 275, 225, 200, 175, 150,
+    130, 120, 110, 100, 90, 80, 70, 65, 60, 55,
+    50, 48, 46, 44, 42, 40, 38, 36, 34, 32.5,
+    31, 29.5, 28, 26.5, 25, 24, 23, 22, 21, 20.25,
+    19.5, 18.75, 18, 17.25, 16.5, 15.75, 15, 14.25, 13.5, 13,
+    12.5, 12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8.25,
+    8, 7.75, 7.5, 7.25, 7, 6.75, 6.5, 6.25, 6, 5.75,
+    5.5, 5.25, 5, 4.75, 4.5, 4.25, 4, 3.75, 3.5, 3.25,
+    3, 2.75, 2.5, 2.25, 2
+]
+
+POINTS_TABLE_ADDITIONAL_300 = [
+    300, 165, 105, 80, 65, 60, 55, 50, 45, 40,
+    37.5, 35.0, 32.5, 31.0, 30.5, 30.0, 29.5, 29.0, 28.5, 28.0,
+    26.76, 25.51, 24.27, 23.02, 22.09, 21.16, 20.22, 19.29, 18.36, 17.42,
+    16.49, 15.56, 14.62, 13.69, 13.07, 12.44, 11.82, 11.2, 10.58, 9.96,
+    9.33, 8.71, 8.09, 7.47, 6.84, 6.53, 6.22, 5.91, 5.6, 5.29,
+    4.98, 4.67, 4.36, 4.04, 3.73, 3.61, 3.48, 3.36, 3.24, 3.11,
+    2.99, 2.86, 2.74, 2.61, 2.49, 2.36, 2.24, 2.12, 1.99, 1.87,
+    1.8, 1.74, 1.68, 1.62, 1.56, 1.49, 1.43, 1.37, 1.31, 1.24,
+    1.18, 1.12, 1.06, 1.00, 0.93
+]
+
+# ---- Zurich special case ----
+# Winner points are 400 *per player* (team event).
+# There isn't a simple single-player “position table” that matches standard events because payout/points are computed on
+# a team basis; most simulators treat this as its own custom scoring function.
+ZURICH_WINNER_POINTS_EACH_PLAYER = 400.0
+
+POINTS_TABLES = {
+    EventType.REGULAR: POINTS_TABLE_REGULAR_500,
+    EventType.SIGNATURE: POINTS_TABLE_SIGNATURE_700,
+    EventType.MAJOR_PLAYERS: POINTS_TABLE_MAJOR_PLAYERS_750,
+    EventType.ADDITIONAL: POINTS_TABLE_ADDITIONAL_300,
+    EventType.PLAYOFFS_2026_APPROX_750: POINTS_TABLE_MAJOR_PLAYERS_750
+}
+
+SEASON_SCHEDULE = [
+    # Early season / West Coast swing (mostly regular)
+    TournamentType.REGULAR,  # Sony
+    TournamentType.REGULAR,  # AmEx
+    TournamentType.REGULAR,  # Farmers
+    TournamentType.REGULAR,  # WM Phoenix
+
+    # Signatures start
+    TournamentType.SIGNATURE_NO_CUT,  # Pebble (Signature, no cut)
+    TournamentType.SIGNATURE_CUT,     # Genesis (Signature, cut rule)
+    TournamentType.REGULAR,           # (e.g., Cognizant / regular filler)
+    TournamentType.SIGNATURE_CUT,     # Arnold Palmer (Signature, cut rule)
+
+    # Spring
+    TournamentType.PLAYERS,           # THE PLAYERS
+    TournamentType.REGULAR,           # Valspar
+    TournamentType.REGULAR,           # Houston
+    TournamentType.REGULAR,           # Valero
+    TournamentType.MAJOR_MASTERS,     # Masters
+    TournamentType.SIGNATURE_NO_CUT,  # RBC Heritage (Signature, no cut)
+
+    # Mid-season signature block
+    TournamentType.SIGNATURE_NO_CUT,  # (e.g., new Doral Signature)
+    TournamentType.SIGNATURE_NO_CUT,  # Truist (Signature, no cut)
+    TournamentType.MAJOR_PGA,         # PGA Championship
+
+    # Summer into majors + Signature
+    TournamentType.REGULAR,           # Byron Nelson
+    TournamentType.REGULAR,           # Charles Schwab
+    TournamentType.SIGNATURE_CUT,     # Memorial (Signature, cut rule)
+    TournamentType.REGULAR,           # Canadian Open
+    TournamentType.MAJOR_US_OPEN,     # U.S. Open
+    TournamentType.SIGNATURE_NO_CUT,  # Travelers (Signature, no cut)
+
+    # Late season / lead-in to playoffs
+    TournamentType.REGULAR,           # John Deere
+    TournamentType.REGULAR,           # Scottish Open
+    TournamentType.MAJOR_OPEN,        # The Open Championship
+    TournamentType.REGULAR,           # 3M
+    TournamentType.REGULAR,           # Rocket
+    TournamentType.REGULAR,           # Wyndham (regular season finale)
+
+    # FedExCup Playoffs (simplified: no cut, 70 field)
+    TournamentType.PLAYOFF,           # FedEx St. Jude (70)
+    TournamentType.PLAYOFF,           # BMW (50)  -> will refine later
+    TournamentType.PLAYOFF,           # TOUR Championship (30) -> will refine later
+]
 
 def compute_player_stats(
     csv_paths,
@@ -295,17 +471,6 @@ def simulate_and_compare_player(player_moments, player_params, player_id, n_roun
 
     return out
 
-def build_simple_points_table(n_finishers, first_points):
-    pts = []
-    p = float(first_points)
-    for _ in range(n_finishers):
-        pts.append(float(p))
-        p = p * BASE_POINTS_DECAY
-    return pts
-
-POINTS_TABLE_REGULAR = build_simple_points_table(FIELD_SIZE_REGULAR, BASE_POINTS_FIRST_REG)
-POINTS_TABLE_ELEVATED = build_simple_points_table(FIELD_SIZE_ELEVATED, BASE_POINTS_FIRST_ELEV)
-
 def get_points_for_rank(event_type, rank, points_tables):
     """
     rank: 1 = winner, 2 = second, ...
@@ -337,62 +502,93 @@ def get_points_for_rank(event_type, rank, points_tables):
 
     return float(table[idx])
 
+def assign_points_with_ties(results_df, event_type, points_tables, score_col="TotalScore"):
+    """
+    Assign FinalRank and Points using PGA-style tie averaging.
+
+    - Competition ranking (1,1,3...)
+    - Points averaged over occupied positions
+    """
+    table = points_tables[event_type]
+    df = results_df.sort_values(score_col, ascending=True).reset_index(drop=True).copy()
+
+    # 0-based finishing positions
+    df["_pos0"] = np.arange(len(df))
+
+    # Competition rank: first index in tie group + 1
+    df["FinalRank"] = df.groupby(score_col)["_pos0"].transform("min") + 1
+
+    # Tie group bounds
+    grp_min = df.groupby(score_col)["_pos0"].transform("min")
+    grp_max = df.groupby(score_col)["_pos0"].transform("max")
+
+    points = []
+    for start, end in zip(grp_min, grp_max):
+        pts = []
+        for pos in range(int(start), int(end) + 1):
+            pts.append(float(table[pos]) if pos < len(table) else 0.0)
+        points.append(float(np.mean(pts)))
+
+    df["Points"] = points
+
+    return df.drop(columns=["_pos0"])
 
 def apply_cut(scores_after_two_rounds, rule):
     """
-    scores_after_two_rounds: DataFrame with columns [player_id, total_2r]
+    scores_after_two_rounds: DataFrame with columns [PLAYER_ID_COL, TOTAL_2R_COL]
     Returns a set of player_ids who make the cut.
-
-    Parameters
-    ----------
-    scores_after_two_rounds : pandas.DataFrame
-    rule : CutRule
     """
     if rule == CutRule.NONE:
         return set(scores_after_two_rounds[PLAYER_ID_COL].tolist())
 
     df = scores_after_two_rounds.sort_values(TOTAL_2R_COL, ascending=True).reset_index(drop=True)
 
-    if rule == CutRule.TOP_65_TIES:
-        if len(df) <= CUT_TOP_65:
+    # --- Generic "top N and ties" rules ---
+    top_n_map = {
+        CutRule.TOP_50_TIES: 50,
+        CutRule.TOP_60_TIES: 60,
+        CutRule.TOP_65_TIES: 65,
+        CutRule.TOP_70_TIES: 70,
+    }
+
+    if rule in top_n_map:
+        n = top_n_map[rule]
+        if len(df) <= n:
             return set(df[PLAYER_ID_COL].tolist())
 
-        cut_idx = CUT_TOP_65 - 1
-        cut_score = float(df.loc[cut_idx, TOTAL_2R_COL])
-
+        cut_score = float(df.loc[n - 1, TOTAL_2R_COL])
         return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
 
+    # --- "Top 50 + within 10 shots of lead" rule ---
     if rule == CutRule.TOP_50_PLUS_10_SHOTS:
-        if len(df) <= CUT_TOP_50:
+        n = 50
+        if len(df) <= n:
             return set(df[PLAYER_ID_COL].tolist())
 
         leader = float(df.loc[0, TOTAL_2R_COL])
-        base_cut_idx = CUT_TOP_50 - 1
-        base_cut = float(df.loc[base_cut_idx, TOTAL_2R_COL])
+        base_cut = float(df.loc[n - 1, TOTAL_2R_COL])
 
         cut_score = max(base_cut, leader + CUT_PLUS_SHOTS)
-
         return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
 
     raise ValueError("Unknown cut rule: " + str(rule))
 
-def simulate_season(player_params):
-    # Stable ordering so weights align with pids
+def simulate_season(player_params, schedule):
+    """
+    Simulate a season using TournamentType schedule.
+
+    player_params[pid] = (a, loc, scale, weight)
+    weights assumed normalized already.
+    """
     pids = [str(pid) for pid in list(player_params.keys())]
 
-    # Optional sanity check
-    missing = [pid for pid in pids if pid not in player_params]
-    if missing:
-        raise KeyError(
-            "Some pids are missing from player_params. Example missing: " + str(missing[:10])
-        )
-
-    # Weights assumed normalized and stored as 4th element
     weights = [float(player_params[pid][3]) for pid in pids]
 
     points_tables = {
-        EventType.REGULAR: POINTS_TABLE_REGULAR,
-        EventType.ELEVATED: POINTS_TABLE_ELEVATED,
+        EventType.REGULAR: POINTS_TABLE_REGULAR_500,
+        EventType.SIGNATURE: POINTS_TABLE_SIGNATURE_700,
+        EventType.MAJOR_PLAYERS: POINTS_TABLE_MAJOR_PLAYERS_750,
+        EventType.ADDITIONAL: POINTS_TABLE_ADDITIONAL_300,
     }
 
     season_points = {pid: 0.0 for pid in pids}
@@ -400,8 +596,15 @@ def simulate_season(player_params):
 
     rng = np.random.default_rng()
 
-    def run_event(event_type, field_size, cut_rule):
-        field = rng.choice(pids, size=field_size, replace=False, p=weights).tolist()
+    def run_event(tournament_type):
+        cfg = tournament_type.value  # TournamentConfig
+
+        field = rng.choice(
+            pids,
+            size=cfg.field_size,
+            replace=False,
+            p=weights,
+        ).tolist()
 
         # --- simulate first two rounds ---
         scores_pre = sample_round_scores_for_players(player_params, CUT_AFTER_ROUND, field)
@@ -412,7 +615,7 @@ def simulate_season(player_params):
             TOTAL_2R_COL: totals_2r,
         })
 
-        made_cut = apply_cut(df2, cut_rule)
+        made_cut = apply_cut(df2, cfg.cut_rule)
         survivors = [pid for pid in field if pid in made_cut]
 
         # --- simulate remaining rounds for survivors ---
@@ -420,21 +623,21 @@ def simulate_season(player_params):
         scores_post = sample_round_scores_for_players(player_params, remaining_rounds, survivors)
         totals_post = scores_post.sum(axis=1)
 
-        # Build final results
         surv_totals_2r = df2.set_index(PLAYER_ID_COL).loc[survivors, TOTAL_2R_COL].values
         final_totals = surv_totals_2r + totals_post
 
         results_cut = pd.DataFrame({
             "Player": survivors,
             "TotalScore": final_totals,
-        }).sort_values("TotalScore", ascending=True).reset_index(drop=True)
+        })
 
-        results_cut["FinalRank"] = np.arange(1, len(results_cut) + 1)
-
-        results_cut["Points"] = [
-            get_points_for_rank(event_type, int(r), points_tables)
-            for r in results_cut["FinalRank"]
-        ]
+        # tie-aware ranking + points
+        results_cut = assign_points_with_ties(
+            results_cut,
+            event_type=cfg.points_type,
+            points_tables=points_tables,
+            score_col="TotalScore",
+        )
 
         # Players missing the cut get 0 points
         missed = [pid for pid in field if pid not in made_cut]
@@ -453,17 +656,13 @@ def simulate_season(player_params):
         for row in results.itertuples(index=False):
             season_points[str(row.Player)] += float(row.Points)
 
+        # Keep track of tournament type
+        results["TournamentType"] = tournament_type.name
+
         return results
 
-    # regular season
-    for _ in range(N_REGULAR_EVENTS):
-        res = run_event(EventType.REGULAR, FIELD_SIZE_REGULAR, CutRule.TOP_65_TIES)
-        event_results.append(res)
-
-    # elevated season
-    for _ in range(N_ELEVATED_EVENTS):
-        res = run_event(EventType.ELEVATED, FIELD_SIZE_ELEVATED, CutRule.TOP_50_PLUS_10_SHOTS)
-        event_results.append(res)
+    for tournament_type in schedule:
+        event_results.append(run_event(tournament_type))
 
     season_summary = pd.DataFrame(
         [(pid, season_points[pid]) for pid in pids],
@@ -497,6 +696,6 @@ player_params = build_player_generators(moments)
 comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
 print(comparison)
 
-season = simulate_season(player_params)
+season = simulate_season(player_params, SEASON_SCHEDULE)
 
 print(season[0][:26])
