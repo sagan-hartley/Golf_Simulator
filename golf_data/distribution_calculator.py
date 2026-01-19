@@ -553,10 +553,10 @@ def apply_cut(scores_after_two_rounds, rule):
 
     # --- Generic "top N and ties" rules ---
     top_n_map = {
-        CutRule.TOP_50_TIES: 50,
-        CutRule.TOP_60_TIES: 60,
-        CutRule.TOP_65_TIES: 65,
-        CutRule.TOP_70_TIES: 70,
+        CutRule.TOP_50_TIES: CUT_TOP_50,
+        CutRule.TOP_60_TIES: CUT_TOP_60,
+        CutRule.TOP_65_TIES: CUT_TOP_65,
+        CutRule.TOP_70_TIES: CUT_TOP_70,
     }
 
     if rule in top_n_map:
