@@ -311,6 +311,7 @@ def compute_player_stats(
     if weight_floor > 0.0:
         raw_weights = np.maximum(raw_weights, weight_floor)
 
+    # We use this noramlized weight value for sampling player fields when simulating events downstream
     out["Weight"] = raw_weights / raw_weights.sum()
 
     # Sort: best players first (lower mean score), then higher participation
@@ -380,6 +381,7 @@ def skewnorm_params_from_moments(mean, variance, skew, eps=1e-8):
     denom_a = 1.0 - delta**2
     denom_scale = 1.0 - (2.0 * delta**2) / PI
 
+    # Check to make sure denominators wont blow up skew or cause ZeroDivisionError
     if denom_a <= eps or denom_scale <= eps:
         raise ZeroDivisionError(
             f"Degenerate skew-normal parameters for delta={delta}"
@@ -409,37 +411,43 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean", v
 
 def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     """
-    Draw round-by-round scores for multiple players.
+    Draw round-by-round integer scores for multiple players.
 
     Parameters
     ----------
     player_params : dict
-        Mapping: player_id -> (a, loc, scale)
+        Mapping: player_id -> (a, loc, scale, weight)
     n_rounds : int
         Number of rounds to simulate.
-    player_ids : list or array
+    player_ids : list or array, optional
         Player IDs to simulate (field for this tournament).
+        If None, all players in player_params are used.
 
     Returns
     -------
     numpy.ndarray
         Array of shape (num_players, n_rounds),
-        where each row corresponds to one player.
+        where each row corresponds to one player
+        and values are integer scores.
     """
-    if player_ids == None:
-        player_ids = player_params.keys()
+    if player_ids is None:
+        player_ids = list(player_params.keys())
 
     num_players = len(player_ids)
-    scores = np.zeros((num_players, n_rounds))
+    scores = np.zeros((num_players, n_rounds), dtype=int)
 
     for i, pid in enumerate(player_ids):
         a, loc, scale, _ = player_params[pid]
-        scores[i, :] = skewnorm.rvs(
+
+        raw_scores = skewnorm.rvs(
             a,
             loc=loc,
             scale=scale,
-            size=n_rounds
+            size=n_rounds,
         )
+
+        # Round to nearest integer (unbiased)
+        scores[i, :] = np.rint(raw_scores).astype(int)
 
     return scores
 
@@ -584,13 +592,6 @@ def simulate_season(player_params, schedule):
 
     weights = [float(player_params[pid][3]) for pid in pids]
 
-    points_tables = {
-        EventType.REGULAR: POINTS_TABLE_REGULAR_500,
-        EventType.SIGNATURE: POINTS_TABLE_SIGNATURE_700,
-        EventType.MAJOR_PLAYERS: POINTS_TABLE_MAJOR_PLAYERS_750,
-        EventType.ADDITIONAL: POINTS_TABLE_ADDITIONAL_300,
-    }
-
     season_points = {pid: 0.0 for pid in pids}
     event_results = []
 
@@ -635,7 +636,7 @@ def simulate_season(player_params, schedule):
         results_cut = assign_points_with_ties(
             results_cut,
             event_type=cfg.points_type,
-            points_tables=points_tables,
+            points_tables=POINTS_TABLES,
             score_col="TotalScore",
         )
 
