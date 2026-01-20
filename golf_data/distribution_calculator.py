@@ -214,76 +214,188 @@ SEASON_SCHEDULE = [
     TournamentType.PLAYOFF,           # TOUR Championship (30) -> will refine later
 ]
 
+def load_and_standardize_round_data(csv_paths, player_col, value_col):
+    """
+    Load round-level data from multiple CSV files and standardize schema.
+
+    This function is intentionally limited to:
+    - reading CSVs
+    - validating required columns
+    - coercing numeric values
+    - tagging each row with a season identifier
+
+    It performs NO aggregation or filtering beyond basic cleaning,
+    making it easy to unit-test in isolation.
+
+    Parameters
+    ----------
+    csv_paths : list
+        List of CSV file paths, each representing one season.
+    player_col : str
+        Column name identifying the player (e.g., player name or ID).
+    value_col : str
+        Column name containing the numeric round-level value
+        (e.g., score, strokes gained).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Standardized DataFrame with columns:
+        - player_col
+        - value_col
+        - "_season" (identifier for the source CSV)
+    """
+    if not csv_paths:
+        raise ValueError("csv_paths cannot be empty.")
+
+    frames = []
+
+    for path in csv_paths:
+        # Load CSV
+        df = pd.read_csv(path)
+
+        # Validate schema early so errors are explicit
+        if player_col not in df.columns:
+            raise ValueError(
+                "Missing column '{}' in file: {}".format(player_col, path)
+            )
+        if value_col not in df.columns:
+            raise ValueError(
+                "Missing column '{}' in file: {}".format(value_col, path)
+            )
+
+        # Keep only the columns we care about
+        df = df[[player_col, value_col]].copy()
+
+        # Force numeric values; invalid entries become NaN
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+
+        # Drop rows with missing player IDs or values
+        df = df.dropna(subset=[player_col, value_col])
+
+        # Tag rows with season identifier
+        # (path is sufficient; could be replaced with year later)
+        df["_season"] = path
+
+        frames.append(df)
+
+    # Combine all seasons into one long DataFrame
+    return pd.concat(frames, ignore_index=True)
+
+def build_participation_weights(avg_events, weight_power=1.0, weight_floor=0.0):
+    """
+    Construct normalized player selection weights from participation data.
+
+    This function converts average event participation into sampling weights
+    used when selecting tournament fields.
+
+    Design goals:
+    - Higher participation ⇒ higher probability of selection
+    - Optional power transform to flatten or amplify differences
+    - Optional floor to prevent players from having zero probability
+    - Guaranteed normalization (sum of weights = 1)
+
+    Parameters
+    ----------
+    avg_events : pandas.Series
+        Average number of events played per season for each player.
+    weight_power : float, optional
+        Exponent applied to AvgEvents before normalization.
+        - 1.0 = linear
+        - <1.0 = flatten differences
+        - >1.0 = emphasize frequent players
+    weight_floor : float, optional
+        Minimum raw weight applied before normalization.
+        Useful to prevent rare players from being impossible to select.
+
+    Returns
+    -------
+    pandas.Series
+        Normalized weights summing to 1.0, aligned with avg_events index.
+    """
+    # Convert participation to raw weights
+    raw = avg_events.astype(float) ** float(weight_power)
+
+    # Enforce a minimum weight if requested
+    if weight_floor > 0.0:
+        raw = np.maximum(raw, float(weight_floor))
+
+    # Normalize so weights sum to 1 (required by np.random.choice)
+    total = float(raw.sum())
+    if total <= 0.0:
+        raise ValueError(
+            "Weight normalization failed: sum of raw weights is <= 0"
+        )
+
+    return raw / total
+
 def compute_player_stats(
     csv_paths,
     player_col,
     value_col,
     min_avg_rounds=20,
     weight_power=1.0,
-    weight_floor=0.0,
+    weight_floor=0.03,
 ):
     """
-    Compute per-player mean, variance, skew, and participation-based weights
-    across multiple season CSVs.
+    Compute per-player statistical moments and participation-based weights
+    across multiple seasons of round-level data.
 
-    Key details
-    -----------
-    - AvgRounds = total rounds across all CSVs / number of CSVs
-    - AvgEvents = average number of events per season
-    - Weight is derived from AvgEvents and normalized to sum to 1
+    This function orchestrates the full pipeline:
+    1) Load and standardize raw round data
+    2) Aggregate round-level statistics
+    3) Compute average rounds and events per season
+    4) Filter out players with insufficient data
+    5) Build normalized participation weights
 
     Parameters
     ----------
     csv_paths : list
-        List of CSV file paths (e.g., multiple seasons).
+        List of CSV file paths (one per season).
     player_col : str
-        Column name that identifies the player.
+        Column identifying the player.
     value_col : str
-        Column name for the numeric value to analyze (e.g., score).
-    min_avg_rounds : int
-        Minimum average rounds per season required to keep a player.
-    weight_power : float
-        Exponent applied to AvgEvents when building weights.
-        1.0 = literal participation, <1 flattens, >1 amplifies.
-    weight_floor : float
-        Minimum raw weight to assign before normalization (prevents zero-prob players).
+        Column containing the numeric round-level value.
+    min_avg_rounds : int, optional
+        Minimum average number of rounds per season required to
+        include a player in the output.
+    weight_power : float, optional
+        Exponent applied to average event participation when building weights.
+    weight_floor : float, optional
+        Minimum raw weight before normalization.
 
     Returns
     -------
     pandas.DataFrame
         Columns:
-        Player, AvgRounds, AvgEvents, Mean, Variance, Skew, Weight
+        - Player
+        - AvgRounds
+        - AvgEvents
+        - Mean
+        - Variance
+        - Skew
+        - Weight
+
+        Sorted by increasing Mean (better players first), then AvgEvents.
     """
-    if not csv_paths:
-        raise ValueError("csv_paths cannot be empty.")
+    # Load and clean raw round-level data
+    all_data = load_and_standardize_round_data(
+        csv_paths, player_col, value_col
+    )
 
-    frames = []
-    for path in csv_paths:
-        df = pd.read_csv(path)
-
-        if player_col not in df.columns:
-            raise ValueError(f"Missing column '{player_col}' in file: {path}")
-        if value_col not in df.columns:
-            raise ValueError(f"Missing column '{value_col}' in file: {path}")
-
-        df = df[[player_col, value_col]].copy()
-        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
-        df = df.dropna(subset=[player_col, value_col])
-
-        # Tag season so we can count events per season
-        df["_season"] = path
-        frames.append(df)
-
-    all_data = pd.concat(frames, ignore_index=True)
     num_seasons = len(csv_paths)
 
-    # --- round-level stats ---
+    # --- round-level aggregation ---
     grouped = all_data.groupby(player_col)[value_col]
 
+    # Total rounds played across all seasons
     total_rounds = grouped.size()
+
+    # Average rounds per season
     avg_rounds = total_rounds / float(num_seasons)
 
     # --- event-level participation ---
+    # Count events per player per season, then average across seasons
     events_per_season = (
         all_data
         .groupby(["_season", player_col])
@@ -292,29 +404,26 @@ def compute_player_stats(
         .mean()
     )
 
+    # Assemble statistics table
     out = pd.DataFrame({
         "AvgRounds": avg_rounds,
         "AvgEvents": events_per_season,
         "Mean": grouped.mean(),
         "Variance": grouped.var(ddof=1),
         "Skew": grouped.skew(),
-    }).reset_index()
+    }).reset_index().rename(columns={player_col: "Player"})
 
-    out = out.rename(columns={player_col: "Player"})
-
-    # Filter by AVERAGE rounds per season
+    # Filter players with insufficient participation
     out = out[out["AvgRounds"] >= float(min_avg_rounds)].copy()
 
-    # --- build participation-based weights ---
-    raw_weights = out["AvgEvents"].astype(float) ** float(weight_power)
+    # Build normalized sampling weights
+    out["Weight"] = build_participation_weights(
+        out["AvgEvents"],
+        weight_power=weight_power,
+        weight_floor=weight_floor,
+    )
 
-    if weight_floor > 0.0:
-        raw_weights = np.maximum(raw_weights, weight_floor)
-
-    # We use this noramlized weight value for sampling player fields when simulating events downstream
-    out["Weight"] = raw_weights / raw_weights.sum()
-
-    # Sort: best players first (lower mean score), then higher participation
+    # Sort so better players (lower mean score) appear first
     out = out.sort_values(
         ["Mean", "AvgEvents"],
         ascending=[True, False]
@@ -569,7 +678,7 @@ def apply_cut(scores_after_two_rounds, rule):
 
     # --- "Top 50 + within 10 shots of lead" rule ---
     if rule == CutRule.TOP_50_PLUS_10_SHOTS:
-        n = 50
+        n = CUT_TOP_50
         if len(df) <= n:
             return set(df[PLAYER_ID_COL].tolist())
 
@@ -581,7 +690,7 @@ def apply_cut(scores_after_two_rounds, rule):
 
     raise ValueError("Unknown cut rule: " + str(rule))
 
-def simulate_season(player_params, schedule):
+def simulate_season(player_params, schedule, seed=123):
     """
     Simulate a season using TournamentType schedule.
 
@@ -595,7 +704,7 @@ def simulate_season(player_params, schedule):
     season_points = {pid: 0.0 for pid in pids}
     event_results = []
 
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
 
     def run_event(tournament_type):
         cfg = tournament_type.value  # TournamentConfig
