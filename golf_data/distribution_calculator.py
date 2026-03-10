@@ -4,6 +4,7 @@ from scipy.optimize import brentq
 from scipy.stats import skewnorm, skew
 from enum import Enum
 from dataclasses import dataclass
+from typing import Optional
 import matplotlib.pyplot as plt
 
 PI = np.pi
@@ -22,13 +23,47 @@ CUT_TOP_60 = 60
 CUT_TOP_50 = 50
 CUT_PLUS_SHOTS = 10.0
 
+# ── Dynamic weight configuration ──────────────────────────────────────────────
+
+@dataclass
+class DynamicWeightConfig:
+    """
+    Controls rank-based weight nudging after each event.
+
+    Attributes
+    ----------
+    enabled : bool
+        Master switch. False reproduces original static behaviour.
+    nudge_amount : float
+        How much to adjust weight after each event (e.g. 0.05 = 5%).
+        Applied as a multiplier: weight *= (1 + nudge) or (1 - nudge).
+    top_pct : float
+        Top finishing percentile that earns a positive nudge.
+        e.g. 0.25 = top quarter of finishers get a boost.
+    bot_pct : float
+        Bottom finishing percentile that earns a negative nudge.
+        e.g. 0.25 = bottom quarter of finishers get a penalty.
+    min_weight : float
+        Hard floor before re-normalisation.
+    max_weight_multiplier : float
+        Maximum a player's weight can grow relative to their baseline.
+    """
+    enabled: bool = True
+    nudge_amount: float = 0.05
+    top_pct: float = 0.25
+    bot_pct: float = 0.25
+    min_weight: float = 0.001
+    max_weight_multiplier: float = 2.0
+
+
 class EventType(Enum):
     REGULAR = "regular"
     SIGNATURE = "signature"
     MAJOR_PLAYERS = "major_players"
     ADDITIONAL = "additional"
     PLAYOFFS_2026_APPROX_750 = "playoffs_2026_approx_750"
-    ZURICH_TEAM_EACH_PLAYER = "zurich_team_each_player" # code not worked to simulate this yet
+    ZURICH_TEAM_EACH_PLAYER = "zurich_team_each_player"
+
 
 class CutRule(Enum):
     NONE = "none"
@@ -38,11 +73,13 @@ class CutRule(Enum):
     TOP_50_TIES = "top50_ties"
     TOP_50_PLUS_10_SHOTS = "top50_plus_10shots"
 
+
 @dataclass()
 class TournamentConfig:
     points_type: EventType
     cut_rule: CutRule
     field_size: int
+
 
 class TournamentType(Enum):
     REGULAR = TournamentConfig(
@@ -50,59 +87,52 @@ class TournamentType(Enum):
         cut_rule=CutRule.TOP_65_TIES,
         field_size=156,
     )
-
     SIGNATURE_NO_CUT = TournamentConfig(
         points_type=EventType.SIGNATURE,
         cut_rule=CutRule.NONE,
         field_size=70,
     )
-
     SIGNATURE_CUT = TournamentConfig(
         points_type=EventType.SIGNATURE,
         cut_rule=CutRule.TOP_50_PLUS_10_SHOTS,
         field_size=70,
     )
-
     MAJOR_MASTERS = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_50_TIES,
         field_size=156,
     )
-
     MAJOR_US_OPEN = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_60_TIES,
         field_size=156,
     )
-
     MAJOR_PGA = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_70_TIES,
         field_size=156,
     )
-
     MAJOR_OPEN = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_70_TIES,
         field_size=156,
     )
-
     PLAYERS = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_65_TIES,
         field_size=156,
     )
-
     PLAYOFF = TournamentConfig(
-        points_type=EventType.MAJOR_PLAYERS,  # your current simplification
+        points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.NONE,
         field_size=70,
     )
 
+
 PLAYER_ID_COL = "player_id"
 TOTAL_2R_COL = "total_2r"
 
-# ---- Regular / Signature / Majors+Players / Additional tables (positions 1..85) ----
+# ── Points tables ─────────────────────────────────────────────────────────────
 
 POINTS_TABLE_REGULAR_500 = [
     500, 300, 190, 135, 110, 100, 90, 85, 80, 75,
@@ -152,10 +182,6 @@ POINTS_TABLE_ADDITIONAL_300 = [
     1.18, 1.12, 1.06, 1.00, 0.93
 ]
 
-# ---- Zurich special case ----
-# Winner points are 400 *per player* (team event).
-# There isn't a simple single-player “position table” that matches standard events because payout/points are computed on
-# a team basis; most simulators treat this as its own custom scoring function.
 ZURICH_WINNER_POINTS_EACH_PLAYER = 400.0
 
 POINTS_TABLES = {
@@ -163,79 +189,58 @@ POINTS_TABLES = {
     EventType.SIGNATURE: POINTS_TABLE_SIGNATURE_700,
     EventType.MAJOR_PLAYERS: POINTS_TABLE_MAJOR_PLAYERS_750,
     EventType.ADDITIONAL: POINTS_TABLE_ADDITIONAL_300,
-    EventType.PLAYOFFS_2026_APPROX_750: POINTS_TABLE_MAJOR_PLAYERS_750
+    EventType.PLAYOFFS_2026_APPROX_750: POINTS_TABLE_MAJOR_PLAYERS_750,
 }
 
 SEASON_SCHEDULE = [
-    # Early season / West Coast swing (mostly regular)
-    TournamentType.REGULAR,  # Sony
-    TournamentType.REGULAR,  # AmEx
-    TournamentType.REGULAR,  # Farmers
-    TournamentType.REGULAR,  # WM Phoenix
-
-    # Signatures start
-    TournamentType.SIGNATURE_NO_CUT,  # Pebble (Signature, no cut)
-    TournamentType.SIGNATURE_CUT,     # Genesis (Signature, cut rule)
-    TournamentType.REGULAR,           # (e.g., Cognizant / regular filler)
-    TournamentType.SIGNATURE_CUT,     # Arnold Palmer (Signature, cut rule)
-
-    # Spring
-    TournamentType.PLAYERS,           # THE PLAYERS
-    TournamentType.REGULAR,           # Valspar
-    TournamentType.REGULAR,           # Houston
-    TournamentType.REGULAR,           # Valero
-    TournamentType.MAJOR_MASTERS,     # Masters
-    TournamentType.SIGNATURE_NO_CUT,  # RBC Heritage (Signature, no cut)
-
-    # Mid-season signature block
-    TournamentType.SIGNATURE_NO_CUT,  # (e.g., new Doral Signature)
-    TournamentType.SIGNATURE_NO_CUT,  # Truist (Signature, no cut)
-    TournamentType.MAJOR_PGA,         # PGA Championship
-
-    # Summer into majors + Signature
-    TournamentType.REGULAR,           # Byron Nelson
-    TournamentType.REGULAR,           # Charles Schwab
-    TournamentType.SIGNATURE_CUT,     # Memorial (Signature, cut rule)
-    TournamentType.REGULAR,           # Canadian Open
-    TournamentType.MAJOR_US_OPEN,     # U.S. Open
-    TournamentType.SIGNATURE_NO_CUT,  # Travelers (Signature, no cut)
-
-    # Late season / lead-in to playoffs
-    TournamentType.REGULAR,           # John Deere
-    TournamentType.REGULAR,           # Scottish Open
-    TournamentType.MAJOR_OPEN,        # The Open Championship
-    TournamentType.REGULAR,           # 3M
-    TournamentType.REGULAR,           # Rocket
-    TournamentType.REGULAR,           # Wyndham (regular season finale)
-
-    # FedExCup Playoffs (simplified: no cut, 70 field)
-    TournamentType.PLAYOFF,           # FedEx St. Jude (70)
-    TournamentType.PLAYOFF,           # BMW (50)  -> will refine later
-    TournamentType.PLAYOFF,           # TOUR Championship (30) -> will refine later
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.SIGNATURE_NO_CUT,
+    TournamentType.SIGNATURE_CUT,
+    TournamentType.REGULAR,
+    TournamentType.SIGNATURE_CUT,
+    TournamentType.PLAYERS,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.MAJOR_MASTERS,
+    TournamentType.SIGNATURE_NO_CUT,
+    TournamentType.SIGNATURE_NO_CUT,
+    TournamentType.SIGNATURE_NO_CUT,
+    TournamentType.MAJOR_PGA,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.SIGNATURE_CUT,
+    TournamentType.REGULAR,
+    TournamentType.MAJOR_US_OPEN,
+    TournamentType.SIGNATURE_NO_CUT,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.MAJOR_OPEN,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.REGULAR,
+    TournamentType.PLAYOFF,
+    TournamentType.PLAYOFF,
+    TournamentType.PLAYOFF,
 ]
+
+# ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_and_standardize_round_data(csv_paths, player_col, value_col):
     """
     Load round-level data from multiple CSV files and standardize schema.
-
-    This function is intentionally limited to:
-    - reading CSVs
-    - validating required columns
-    - coercing numeric values
-    - tagging each row with a season identifier
-
-    It performs NO aggregation or filtering beyond basic cleaning,
-    making it easy to unit-test in isolation.
 
     Parameters
     ----------
     csv_paths : list
         List of CSV file paths, each representing one season.
     player_col : str
-        Column name identifying the player (e.g., player name or ID).
+        Column name identifying the player.
     value_col : str
-        Column name containing the numeric round-level value
-        (e.g., score, strokes gained).
+        Column name containing the numeric round-level value.
 
     Returns
     -------
@@ -243,91 +248,58 @@ def load_and_standardize_round_data(csv_paths, player_col, value_col):
         Standardized DataFrame with columns:
         - player_col
         - value_col
-        - "_season" (identifier for the source CSV)
+        - "_season"
     """
     if not csv_paths:
         raise ValueError("csv_paths cannot be empty.")
 
     frames = []
-
     for path in csv_paths:
-        # Load CSV
         df = pd.read_csv(path)
 
-        # Validate schema early so errors are explicit
         if player_col not in df.columns:
-            raise ValueError(
-                "Missing column '{}' in file: {}".format(player_col, path)
-            )
+            raise ValueError("Missing column '{}' in file: {}".format(player_col, path))
         if value_col not in df.columns:
-            raise ValueError(
-                "Missing column '{}' in file: {}".format(value_col, path)
-            )
+            raise ValueError("Missing column '{}' in file: {}".format(value_col, path))
 
-        # Keep only the columns we care about
         df = df[[player_col, value_col]].copy()
-
-        # Force numeric values; invalid entries become NaN
         df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
-
-        # Drop rows with missing player IDs or values
         df = df.dropna(subset=[player_col, value_col])
-
-        # Tag rows with season identifier
-        # (path is sufficient; could be replaced with year later)
         df["_season"] = path
-
         frames.append(df)
 
-    # Combine all seasons into one long DataFrame
     return pd.concat(frames, ignore_index=True)
+
 
 def build_participation_weights(avg_events, weight_power=1.0, weight_floor=0.0):
     """
     Construct normalized player selection weights from participation data.
 
-    This function converts average event participation into sampling weights
-    used when selecting tournament fields.
-
-    Design goals:
-    - Higher participation ⇒ higher probability of selection
-    - Optional power transform to flatten or amplify differences
-    - Optional floor to prevent players from having zero probability
-    - Guaranteed normalization (sum of weights = 1)
-
     Parameters
     ----------
     avg_events : pandas.Series
         Average number of events played per season for each player.
-    weight_power : float, optional
+    weight_power : float
         Exponent applied to AvgEvents before normalization.
-        - 1.0 = linear
-        - <1.0 = flatten differences
-        - >1.0 = emphasize frequent players
-    weight_floor : float, optional
+    weight_floor : float
         Minimum raw weight applied before normalization.
-        Useful to prevent rare players from being impossible to select.
 
     Returns
     -------
     pandas.Series
-        Normalized weights summing to 1.0, aligned with avg_events index.
+        Normalized weights summing to 1.0.
     """
-    # Convert participation to raw weights
     raw = avg_events.astype(float) ** float(weight_power)
 
-    # Enforce a minimum weight if requested
     if weight_floor > 0.0:
         raw = np.maximum(raw, float(weight_floor))
 
-    # Normalize so weights sum to 1 (required by np.random.choice)
     total = float(raw.sum())
     if total <= 0.0:
-        raise ValueError(
-            "Weight normalization failed: sum of raw weights is <= 0"
-        )
+        raise ValueError("Weight normalization failed: sum of raw weights is <= 0")
 
     return raw / total
+
 
 def compute_player_stats(
     csv_paths,
@@ -338,64 +310,29 @@ def compute_player_stats(
     weight_floor=0.03,
 ):
     """
-    Compute per-player statistical moments and participation-based weights
-    across multiple seasons of round-level data.
-
-    This function orchestrates the full pipeline:
-    1) Load and standardize raw round data
-    2) Aggregate round-level statistics
-    3) Compute average rounds and events per season
-    4) Filter out players with insufficient data
-    5) Build normalized participation weights
+    Compute per-player statistical moments and participation-based weights.
 
     Parameters
     ----------
     csv_paths : list
-        List of CSV file paths (one per season).
     player_col : str
-        Column identifying the player.
     value_col : str
-        Column containing the numeric round-level value.
-    min_avg_rounds : int, optional
-        Minimum average number of rounds per season required to
-        include a player in the output.
-    weight_power : float, optional
-        Exponent applied to average event participation when building weights.
-    weight_floor : float, optional
-        Minimum raw weight before normalization.
+    min_avg_rounds : int
+    weight_power : float
+    weight_floor : float
 
     Returns
     -------
     pandas.DataFrame
-        Columns:
-        - Player
-        - AvgRounds
-        - AvgEvents
-        - Mean
-        - Variance
-        - Skew
-        - Weight
-
-        Sorted by increasing Mean (better players first), then AvgEvents.
+        Columns: Player, AvgRounds, AvgEvents, Mean, Variance, Skew, Weight
     """
-    # Load and clean raw round-level data
-    all_data = load_and_standardize_round_data(
-        csv_paths, player_col, value_col
-    )
-
+    all_data = load_and_standardize_round_data(csv_paths, player_col, value_col)
     num_seasons = len(csv_paths)
 
-    # --- round-level aggregation ---
     grouped = all_data.groupby(player_col)[value_col]
-
-    # Total rounds played across all seasons
     total_rounds = grouped.size()
-
-    # Average rounds per season
     avg_rounds = total_rounds / float(num_seasons)
 
-    # --- event-level participation ---
-    # Count events per player per season, then average across seasons
     events_per_season = (
         all_data
         .groupby(["_season", player_col])
@@ -404,7 +341,6 @@ def compute_player_stats(
         .mean()
     )
 
-    # Assemble statistics table
     out = pd.DataFrame({
         "AvgRounds": avg_rounds,
         "AvgEvents": events_per_season,
@@ -413,17 +349,14 @@ def compute_player_stats(
         "Skew": grouped.skew(),
     }).reset_index().rename(columns={player_col: "Player"})
 
-    # Filter players with insufficient participation
     out = out[out["AvgRounds"] >= float(min_avg_rounds)].copy()
 
-    # Build normalized sampling weights
     out["Weight"] = build_participation_weights(
         out["AvgEvents"],
         weight_power=weight_power,
         weight_floor=weight_floor,
     )
 
-    # Sort so better players (lower mean score) appear first
     out = out.sort_values(
         ["Mean", "AvgEvents"],
         ascending=[True, False]
@@ -431,34 +364,42 @@ def compute_player_stats(
 
     return out
 
-def _skew_from_delta(delta, eps=1e-12):
-    """
-    Skewness of a skew-normal distribution as a function of delta.
-    """
-    base = 1.0 - (2.0 * delta**2) / PI
+# ── Skew-normal helpers ───────────────────────────────────────────────────────
 
+def _skew_from_delta(delta, eps=1e-12):
+    """Skewness of a skew-normal distribution as a function of delta."""
+    base = 1.0 - (2.0 * delta**2) / PI
     if base <= eps:
         raise ZeroDivisionError(
-            f"Invalid delta={delta}: denominator approaches zero in skew calculation."
+            f"Invalid delta={delta}: denominator approaches zero."
         )
-
     num = ((4.0 - PI) / 2.0) * (delta * np.sqrt(2.0 / PI))**3
     den = base**1.5
-
     return num / den
 
-def skewnorm_params_from_moments(mean, variance, skew, eps=1e-8):
+
+def skewnorm_params_from_moments(mean, variance, skew_val, eps=1e-8):
     """
     Convert (mean, variance, skewness) into scipy.stats.skewnorm parameters.
+
+    Parameters
+    ----------
+    mean : float
+    variance : float
+    skew_val : float
+    eps : float
+
+    Returns
+    -------
+    tuple
+        (a, loc, scale)
     """
     if variance <= 0 or not np.isfinite(variance):
         raise ValueError(f"Invalid variance: {variance}")
+    if not np.isfinite(skew_val):
+        raise ValueError(f"Invalid skew: {skew_val}")
 
-    if not np.isfinite(skew):
-        raise ValueError(f"Invalid skew: {skew}")
-
-    if abs(skew) < eps:
-        # symmetric → normal
+    if abs(skew_val) < eps:
         return 0.0, mean, np.sqrt(variance)
 
     delta_min, delta_max = -0.999, 0.999
@@ -468,29 +409,24 @@ def skewnorm_params_from_moments(mean, variance, skew, eps=1e-8):
         skew_max = _skew_from_delta(delta_max)
     except ZeroDivisionError as e:
         raise RuntimeError(
-            f"Skew-normal boundary failure for mean={mean}, var={variance}, skew={skew}"
+            f"Skew-normal boundary failure for mean={mean}, var={variance}, skew={skew_val}"
         ) from e
 
-    # The use of target skew here is somewhat contreversial, as there are scenarios where skew falls outside of
-    # the bounds downstream. Another solution could be just to fall back to normal when outside skew bounds.
-    target_skew = max(min(float(skew), skew_max), skew_min)
+    target_skew = max(min(float(skew_val), skew_max), skew_min)
 
     def root_fn(delta):
         return _skew_from_delta(delta) - target_skew
 
-    # The use of a search instead of a close formed solution comes down to the difference between population
-    # vs sample sknewness. Further explanations of this differnce can be found on wikipedia or sci py documentation.
     try:
         delta = brentq(root_fn, delta_min, delta_max)
     except Exception as e:
         raise RuntimeError(
-            f"Root-finding failed for mean={mean}, var={variance}, skew={skew}"
+            f"Root-finding failed for mean={mean}, var={variance}, skew={skew_val}"
         ) from e
 
     denom_a = 1.0 - delta**2
     denom_scale = 1.0 - (2.0 * delta**2) / PI
 
-    # Check to make sure denominators wont blow up skew or cause ZeroDivisionError
     if denom_a <= eps or denom_scale <= eps:
         raise ZeroDivisionError(
             f"Degenerate skew-normal parameters for delta={delta}"
@@ -502,9 +438,17 @@ def skewnorm_params_from_moments(mean, variance, skew, eps=1e-8):
 
     return a, loc, scale
 
-def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean", var_col="Variance", skew_col="Skew", weight_col = "Weight"):
+# ── Player generators ─────────────────────────────────────────────────────────
+
+def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
+                             var_col="Variance", skew_col="Skew", weight_col="Weight"):
     """
-    Returns dict: player_id -> (a, loc, scale, w)
+    Build skew-normal parameters for every player.
+
+    Returns
+    -------
+    dict
+        player_id -> (a, loc, scale, weight)
     """
     params = {}
     for _, row in player_stats_df.iterrows():
@@ -515,8 +459,8 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean", v
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
         w = float(row[weight_col])
         params[pid] = (a, loc, scale, w)
-        
     return params
+
 
 def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     """
@@ -525,19 +469,13 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     Parameters
     ----------
     player_params : dict
-        Mapping: player_id -> (a, loc, scale, weight)
     n_rounds : int
-        Number of rounds to simulate.
-    player_ids : list or array, optional
-        Player IDs to simulate (field for this tournament).
-        If None, all players in player_params are used.
+    player_ids : list or None
 
     Returns
     -------
     numpy.ndarray
-        Array of shape (num_players, n_rounds),
-        where each row corresponds to one player
-        and values are integer scores.
+        Shape (num_players, n_rounds).
     """
     if player_ids is None:
         player_ids = list(player_params.keys())
@@ -547,22 +485,30 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
 
     for i, pid in enumerate(player_ids):
         a, loc, scale, _ = player_params[pid]
-
-        raw_scores = skewnorm.rvs(
-            a,
-            loc=loc,
-            scale=scale,
-            size=n_rounds,
-        )
-
-        # Round to nearest integer (unbiased)
+        raw_scores = skewnorm.rvs(a, loc=loc, scale=scale, size=n_rounds)
         scores[i, :] = np.rint(raw_scores).astype(int)
 
     return scores
 
-def simulate_and_compare_player(player_moments, player_params, player_id, n_rounds=200000, seed=123):
-    rng = np.random.default_rng(seed)
 
+def simulate_and_compare_player(player_moments, player_params, player_id,
+                                  n_rounds=200000, seed=123):
+    """
+    Simulate many rounds for one player and compare moments to targets.
+
+    Parameters
+    ----------
+    player_moments : pd.DataFrame
+    player_params : dict
+    player_id : str
+    n_rounds : int
+    seed : int
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    rng = np.random.default_rng(seed)
     a, loc, scale, _ = player_params[player_id]
     x = skewnorm.rvs(a, loc=loc, scale=scale, size=n_rounds, random_state=rng)
 
@@ -572,95 +518,97 @@ def simulate_and_compare_player(player_moments, player_params, player_id, n_roun
 
     row = player_moments[player_moments["Player"] == player_id].iloc[0]
 
-    target_mean = float(row["Mean"])
-    target_var = float(row["Variance"])
-    target_skew = float(row["Skew"])
-
-    out = pd.DataFrame(
-        {
-            "moment": ["mean", "variance", "skew"],
-            "target": [target_mean, target_var, target_skew],
-            "simulated": [sim_mean, sim_var, sim_skew],
-        }
-    )
+    out = pd.DataFrame({
+        "moment": ["mean", "variance", "skew"],
+        "target": [float(row["Mean"]), float(row["Variance"]), float(row["Skew"])],
+        "simulated": [sim_mean, sim_var, sim_skew],
+    })
     out["diff"] = out["simulated"] - out["target"]
     out["pct_diff"] = out["diff"] / out["target"] * 100.0
-
     return out
+
+# ── Points helpers ────────────────────────────────────────────────────────────
 
 def get_points_for_rank(event_type, rank, points_tables):
     """
-    rank: 1 = winner, 2 = second, ...
-    returns 0 if rank is out of range
+    Return points for a given rank in a given event type.
 
     Parameters
     ----------
     event_type : EventType
     rank : int
     points_tables : dict
-        Mapping: EventType -> list of points by rank (index 0 is rank 1)
-        Example:
-            {
-                EventType.REGULAR: POINTS_TABLE_REGULAR,
-                EventType.ELEVATED: POINTS_TABLE_ELEVATED,
-            }
+
+    Returns
+    -------
+    float
     """
     if rank < 1:
         raise ValueError("rank must be >= 1")
-
     if event_type not in points_tables:
         raise ValueError("Unknown event_type: " + str(event_type))
 
     table = points_tables[event_type]
-
     idx = rank - 1
     if idx >= len(table):
         return 0.0
-
     return float(table[idx])
+
 
 def assign_points_with_ties(results_df, event_type, points_tables, score_col="TotalScore"):
     """
     Assign FinalRank and Points using PGA-style tie averaging.
 
-    - Competition ranking (1,1,3...)
-    - Points averaged over occupied positions
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+    event_type : EventType
+    points_tables : dict
+    score_col : str
+
+    Returns
+    -------
+    pd.DataFrame
     """
     table = points_tables[event_type]
     df = results_df.sort_values(score_col, ascending=True).reset_index(drop=True).copy()
 
-    # 0-based finishing positions
     df["_pos0"] = np.arange(len(df))
-
-    # Competition rank: first index in tie group + 1
     df["FinalRank"] = df.groupby(score_col)["_pos0"].transform("min") + 1
 
-    # Tie group bounds
     grp_min = df.groupby(score_col)["_pos0"].transform("min")
     grp_max = df.groupby(score_col)["_pos0"].transform("max")
 
     points = []
     for start, end in zip(grp_min, grp_max):
-        pts = []
-        for pos in range(int(start), int(end) + 1):
-            pts.append(float(table[pos]) if pos < len(table) else 0.0)
+        pts = [float(table[pos]) if pos < len(table) else 0.0
+               for pos in range(int(start), int(end) + 1)]
         points.append(float(np.mean(pts)))
 
     df["Points"] = points
-
     return df.drop(columns=["_pos0"])
+
 
 def apply_cut(scores_after_two_rounds, rule):
     """
-    scores_after_two_rounds: DataFrame with columns [PLAYER_ID_COL, TOTAL_2R_COL]
-    Returns a set of player_ids who make the cut.
+    Determine which players survive the cut.
+
+    Parameters
+    ----------
+    scores_after_two_rounds : pd.DataFrame
+        Columns: [PLAYER_ID_COL, TOTAL_2R_COL]
+    rule : CutRule
+
+    Returns
+    -------
+    set
+        Player IDs who made the cut.
     """
     if rule == CutRule.NONE:
         return set(scores_after_two_rounds[PLAYER_ID_COL].tolist())
 
     df = scores_after_two_rounds.sort_values(TOTAL_2R_COL, ascending=True).reset_index(drop=True)
 
-    # --- Generic "top N and ties" rules ---
     top_n_map = {
         CutRule.TOP_50_TIES: CUT_TOP_50,
         CutRule.TOP_60_TIES: CUT_TOP_60,
@@ -672,51 +620,148 @@ def apply_cut(scores_after_two_rounds, rule):
         n = top_n_map[rule]
         if len(df) <= n:
             return set(df[PLAYER_ID_COL].tolist())
-
         cut_score = float(df.loc[n - 1, TOTAL_2R_COL])
         return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
 
-    # --- "Top 50 + within 10 shots of lead" rule ---
     if rule == CutRule.TOP_50_PLUS_10_SHOTS:
         n = CUT_TOP_50
         if len(df) <= n:
             return set(df[PLAYER_ID_COL].tolist())
-
         leader = float(df.loc[0, TOTAL_2R_COL])
         base_cut = float(df.loc[n - 1, TOTAL_2R_COL])
-
         cut_score = max(base_cut, leader + CUT_PLUS_SHOTS)
         return set(df.loc[df[TOTAL_2R_COL] <= cut_score, PLAYER_ID_COL].tolist())
 
     raise ValueError("Unknown cut rule: " + str(rule))
 
-def simulate_season(player_params, schedule, seed=123):
-    """
-    Simulate a season using TournamentType schedule.
+# ── Dynamic weight nudging ────────────────────────────────────────────────────
 
-    player_params[pid] = (a, loc, scale, weight)
-    weights assumed normalized already.
+def nudge_weights(
+    current_weights: dict,
+    baseline_weights: dict,
+    results_df: pd.DataFrame,
+    config: DynamicWeightConfig,
+) -> dict:
     """
-    pids = [str(pid) for pid in list(player_params.keys())]
+    Apply a small rank-based nudge to participation weights after an event.
 
-    weights = [float(player_params[pid][3]) for pid in pids]
+    Players finishing in the top bucket get a small weight increase.
+    Players finishing in the bottom bucket or missing the cut get a decrease.
+    Players who did not participate or finished in the middle are unchanged.
+
+    Parameters
+    ----------
+    current_weights : dict
+        Current normalised weights {pid: weight}.
+    baseline_weights : dict
+        Original static weights {pid: weight}, used to enforce ceiling.
+    results_df : pd.DataFrame
+        Must contain columns 'Player' and 'FinalRank'.
+        Missed-cut players should have FinalRank == NaN.
+    config : DynamicWeightConfig
+
+    Returns
+    -------
+    dict
+        New normalised weights {pid: weight}.
+    """
+    finished = results_df.dropna(subset=["FinalRank"]).copy()
+    missed_cut = (
+        results_df[results_df["FinalRank"].isna()]["Player"]
+        .astype(str)
+        .tolist()
+    )
+
+    n_finished = len(finished)
+    top_cutoff = max(1, int(np.ceil(n_finished * config.top_pct)))
+    bot_cutoff = n_finished - int(np.ceil(n_finished * config.bot_pct))
+
+    finished = finished.sort_values("FinalRank").reset_index(drop=True)
+    finished["_bucket"] = "middle"
+    finished.loc[finished.index < top_cutoff, "_bucket"] = "top"
+    finished.loc[finished.index >= bot_cutoff, "_bucket"] = "bottom"
+
+    bucket_map = dict(zip(
+        finished["Player"].astype(str),
+        finished["_bucket"],
+    ))
+    for pid in missed_cut:
+        bucket_map[pid] = "bottom"
+
+    new_weights = {}
+    for pid, w in current_weights.items():
+        bucket = bucket_map.get(pid)
+
+        if bucket == "top":
+            nudged = w * (1.0 + config.nudge_amount)
+        elif bucket == "bottom":
+            nudged = w * (1.0 - config.nudge_amount)
+        else:
+            nudged = w
+
+        ceiling = baseline_weights[pid] * config.max_weight_multiplier
+        new_weights[pid] = min(nudged, ceiling)
+
+    # Floor then re-normalise
+    new_weights = {pid: max(w, config.min_weight) for pid, w in new_weights.items()}
+    total = sum(new_weights.values())
+    return {pid: w / total for pid, w in new_weights.items()}
+
+# ── Season simulation ─────────────────────────────────────────────────────────
+
+def simulate_season(
+    player_params: dict,
+    schedule: list,
+    seed: int = 123,
+    dynamic_weight_config: Optional[DynamicWeightConfig] = None,
+) -> tuple:
+    """
+    Simulate a full season with optional rank-based dynamic weights.
+
+    Parameters
+    ----------
+    player_params : dict
+        pid -> (a, loc, scale, weight)
+    schedule : list[TournamentType]
+    seed : int
+    dynamic_weight_config : DynamicWeightConfig or None
+        None disables dynamic weights, reproducing original behaviour.
+
+    Returns
+    -------
+    season_summary : pd.DataFrame
+        Ranked season points table with columns Player, SeasonPoints, SeasonRank.
+    event_results : list[pd.DataFrame]
+        Per-event result frames.
+    weight_history : pd.DataFrame or None
+        One row per event showing each player's weight after updating.
+        None when dynamic weights are disabled.
+    """
+    pids = [str(pid) for pid in player_params.keys()]
+    baseline_weights = {pid: float(player_params[pid][3]) for pid in pids}
+    current_weights = dict(baseline_weights)
+
+    if dynamic_weight_config is None:
+        dynamic_weight_config = DynamicWeightConfig(enabled=False)
 
     season_points = {pid: 0.0 for pid in pids}
     event_results = []
-
+    weight_snapshots = []
     rng = np.random.default_rng(seed)
 
     def run_event(tournament_type):
-        cfg = tournament_type.value  # TournamentConfig
+        cfg = tournament_type.value
+
+        current_p = np.array([current_weights[pid] for pid in pids], dtype=float)
+        current_p /= current_p.sum()
 
         field = rng.choice(
             pids,
             size=cfg.field_size,
             replace=False,
-            p=weights,
+            p=current_p,
         ).tolist()
 
-        # --- simulate first two rounds ---
         scores_pre = sample_round_scores_for_players(player_params, CUT_AFTER_ROUND, field)
         totals_2r = scores_pre.sum(axis=1)
 
@@ -728,7 +773,6 @@ def simulate_season(player_params, schedule, seed=123):
         made_cut = apply_cut(df2, cfg.cut_rule)
         survivors = [pid for pid in field if pid in made_cut]
 
-        # --- simulate remaining rounds for survivors ---
         remaining_rounds = ROUNDS_PER_EVENT - CUT_AFTER_ROUND
         scores_post = sample_round_scores_for_players(player_params, remaining_rounds, survivors)
         totals_post = scores_post.sum(axis=1)
@@ -741,7 +785,6 @@ def simulate_season(player_params, schedule, seed=123):
             "TotalScore": final_totals,
         })
 
-        # tie-aware ranking + points
         results_cut = assign_points_with_ties(
             results_cut,
             event_type=cfg.points_type,
@@ -749,7 +792,6 @@ def simulate_season(player_params, schedule, seed=123):
             score_col="TotalScore",
         )
 
-        # Players missing the cut get 0 points
         missed = [pid for pid in field if pid not in made_cut]
         if missed:
             missed_df = pd.DataFrame({
@@ -760,52 +802,168 @@ def simulate_season(player_params, schedule, seed=123):
             })
             results = pd.concat([results_cut, missed_df], ignore_index=True)
         else:
-            results = results_cut
+            results = results_cut.copy()
 
-        # Update season totals
         for row in results.itertuples(index=False):
             season_points[str(row.Player)] += float(row.Points)
 
-        # Keep track of tournament type
         results["TournamentType"] = tournament_type.name
-
         return results
 
     for tournament_type in schedule:
-        event_results.append(run_event(tournament_type))
+        results = run_event(tournament_type)
+        event_results.append(results)
 
-    season_summary = pd.DataFrame(
-        [(pid, season_points[pid]) for pid in pids],
-        columns=["Player", "SeasonPoints"],
-    ).sort_values("SeasonPoints", ascending=False).reset_index(drop=True)
+        if dynamic_weight_config.enabled:
+            current_weights = nudge_weights(
+                current_weights,
+                baseline_weights,
+                results,
+                dynamic_weight_config,
+            )
+            weight_snapshots.append(dict(current_weights))
 
+    season_summary = (
+        pd.DataFrame(
+            [(pid, season_points[pid]) for pid in pids],
+            columns=["Player", "SeasonPoints"],
+        )
+        .sort_values("SeasonPoints", ascending=False)
+        .reset_index(drop=True)
+    )
     season_summary["SeasonRank"] = np.arange(1, len(season_summary) + 1)
 
-    return season_summary, event_results
+    weight_history = None
+    if weight_snapshots:
+        weight_history = pd.DataFrame(weight_snapshots)
+        weight_history.index.name = "event_index"
 
-files = [
-    "golf_data\yr2021.csv",
-    "golf_data\yr2022.csv",
-    "golf_data\yr2023.csv",
-    "golf_data\yr2024.csv",
-    "golf_data\yr2025.csv"
-]
+    return season_summary, event_results, weight_history
 
-moments = compute_player_stats(
-    csv_paths=files,
-    player_col="player",
-    value_col="score",
-    min_avg_rounds=20,
-    weight_floor=0.05
-)
+# ── Diagnostics ───────────────────────────────────────────────────────────────
 
-#print(moments.head(20))
+def plot_weight_trajectory(weight_history: pd.DataFrame, player_id: str,
+                            baseline_weights: dict):
+    """
+    Plot how a single player's participation weight evolved across the season.
 
-player_params = build_player_generators(moments)
+    Parameters
+    ----------
+    weight_history : pd.DataFrame
+        Returned by simulate_season when dynamic weights are enabled.
+    player_id : str
+    baseline_weights : dict
+    """
+    if player_id not in weight_history.columns:
+        print(f"Player '{player_id}' not found in weight history.")
+        return
 
-comparison = simulate_and_compare_player(moments, player_params, player_id="Scottie Scheffler", n_rounds=300000, seed=7)
-print(comparison)
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(weight_history.index, weight_history[player_id],
+            marker="o", label="dynamic weight")
+    ax.axhline(baseline_weights[player_id], linestyle="--",
+               color="grey", label="baseline weight")
+    ax.set_title(f"Participation weight over season — {player_id}")
+    ax.set_xlabel("Event index")
+    ax.set_ylabel("Weight (normalised)")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
 
-season = simulate_season(player_params, SEASON_SCHEDULE)
 
-print(season[0][:26])
+def compare_appearance_counts(events_a: list, events_b: list,
+                               label_a="static", label_b="dynamic",
+                               top_n=20) -> pd.DataFrame:
+    """
+    Compare how many events each player appeared in across two simulations.
+
+    Parameters
+    ----------
+    events_a : list[pd.DataFrame]
+    events_b : list[pd.DataFrame]
+    label_a : str
+    label_b : str
+    top_n : int
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    def count(event_list):
+        return (
+            pd.concat([df[["Player"]] for df in event_list], ignore_index=True)
+            ["Player"].value_counts()
+        )
+
+    df = pd.DataFrame({
+        label_a: count(events_a),
+        label_b: count(events_b),
+    }).fillna(0).astype(int)
+
+    df["diff"] = df[label_b] - df[label_a]
+    return df.sort_values("diff", ascending=False).head(top_n)
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+
+    files = [
+        "golf_data/yr2021.csv",
+        "golf_data/yr2022.csv",
+        "golf_data/yr2023.csv",
+        "golf_data/yr2024.csv",
+        "golf_data/yr2025.csv",
+    ]
+
+    moments = compute_player_stats(
+        csv_paths=files,
+        player_col="player",
+        value_col="score",
+        min_avg_rounds=20,
+        weight_floor=0.05,
+    )
+
+    player_params = build_player_generators(moments)
+
+    # -- moment check --
+    comparison = simulate_and_compare_player(
+        moments, player_params, player_id="Scottie Scheffler",
+        n_rounds=300000, seed=7,
+    )
+    print(comparison)
+
+    # -- static season --
+    season_static, events_static, _ = simulate_season(
+        player_params,
+        SEASON_SCHEDULE,
+        seed=123,
+    )
+    print("\n=== Static weights ===")
+    print(season_static.head(26))
+
+    # -- dynamic season --
+    dw_cfg = DynamicWeightConfig(
+        enabled=True,
+        nudge_amount=0.05,
+        top_pct=0.25,
+        bot_pct=0.25,
+        min_weight=0.001,
+        max_weight_multiplier=2.0,
+    )
+
+    season_dynamic, events_dynamic, weight_history = simulate_season(
+        player_params,
+        SEASON_SCHEDULE,
+        seed=123,
+        dynamic_weight_config=dw_cfg,
+    )
+    print("\n=== Dynamic weights ===")
+    print(season_dynamic.head(26))
+
+    # -- weight trajectory plot --
+    baseline_weights = {pid: float(player_params[pid][3]) for pid in player_params}
+    plot_weight_trajectory(weight_history, "Scottie Scheffler", baseline_weights)
+
+    # -- appearance count comparison --
+    print("\n=== Appearance count comparison ===")
+    print(compare_appearance_counts(events_static, events_dynamic))
