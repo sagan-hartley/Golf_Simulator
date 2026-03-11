@@ -257,6 +257,7 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
         player_id -> (a, loc, scale, weight)
     """
     params = {}
+    mvs = {}
     for _, row in player_stats_df.iterrows():
         pid = row[id_col]
         m = float(row[mean_col])
@@ -265,7 +266,8 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
         w = float(row[weight_col])
         params[pid] = (a, loc, scale, w)
-    return params
+        mvs[pid] = (m, v, s)
+    return mvs, params
 
 
 def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
@@ -516,6 +518,7 @@ def nudge_weights(
 # ── Season simulation ──────────────────────────────────────────────────────────
 
 def simulate_season(
+    mvs: dict,
     player_params: dict,
     schedule: list,
     seed: int = 123,
@@ -527,8 +530,11 @@ def simulate_season(
 
     Parameters
     ----------
+    mvs : dict
+        mvs -> (mean, variance, skew)
     player_params : dict
         pid -> (a, loc, scale, weight)
+        
     schedule : list[TournamentType]
     seed : int
     dynamic_weight_config : DynamicWeightConfig or None
@@ -556,9 +562,9 @@ def simulate_season(
     # Capture pre-season parameters before any nudging occurs
     pre_season_params = {
         pid: {
-            "PreSeason_a":      float(player_params[pid][0]),
-            "PreSeason_loc":    float(player_params[pid][1]),
-            "PreSeason_scale":  float(player_params[pid][2]),
+            "PreSeason_mean":      float(mvs[pid][0]),
+            "PreSeason_var":    float(mvs[pid][1]),
+            "PreSeason_skew":  float(mvs[pid][2]),
             "PreSeason_weight": float(player_params[pid][3]),
         }
         for pid in pids
@@ -701,7 +707,7 @@ def simulate_season(
     # Reorder columns: player identity first, then pre-season params, then post-season params, then season results
     col_order = [
         "Player",
-        "PreSeason_a", "PreSeason_loc", "PreSeason_scale", "PreSeason_weight",
+        "PreSeason_mean", "PreSeason_var", "PreSeason_skew", "PreSeason_weight",
         "PostSeason_mean", "PostSeason_var", "PostSeason_skew", "PostSeason_weight",
         "PostSeason_rounds_played",
         "SeasonPoints", "SeasonRank",
@@ -801,7 +807,7 @@ if __name__ == "__main__":
         weight_floor=0.05,
     )
 
-    player_params = build_player_generators(moments)
+    mvs, player_params = build_player_generators(moments)
 
     # -- moment check --
     comparison = simulate_and_compare_player(
@@ -812,6 +818,7 @@ if __name__ == "__main__":
 
     # -- static season --
     season_static, events_static, _ = simulate_season(
+        mvs,
         player_params,
         SEASON_SCHEDULE,
         seed=123,
@@ -830,6 +837,7 @@ if __name__ == "__main__":
     )
 
     season_dynamic, events_dynamic, weight_history = simulate_season(
+        mvs,
         player_params,
         SEASON_SCHEDULE,
         seed=123,
