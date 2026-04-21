@@ -257,7 +257,6 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
         player_id -> (a, loc, scale, weight)
     """
     params = {}
-    mvs = {}
     for _, row in player_stats_df.iterrows():
         pid = row[id_col]
         m = float(row[mean_col])
@@ -266,8 +265,7 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
         w = float(row[weight_col])
         params[pid] = (a, loc, scale, w)
-        mvs[pid] = (m, v, s)
-    return mvs, params
+    return params
 
 
 def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
@@ -518,7 +516,6 @@ def nudge_weights(
 # ── Season simulation ──────────────────────────────────────────────────────────
 
 def simulate_season(
-    mvs: dict,
     player_params: dict,
     schedule: list,
     seed: int = 123,
@@ -530,11 +527,8 @@ def simulate_season(
 
     Parameters
     ----------
-    mvs : dict
-        mvs -> (mean, variance, skew)
     player_params : dict
         pid -> (a, loc, scale, weight)
-        
     schedule : list[TournamentType]
     seed : int
     dynamic_weight_config : DynamicWeightConfig or None
@@ -562,9 +556,9 @@ def simulate_season(
     # Capture pre-season parameters before any nudging occurs
     pre_season_params = {
         pid: {
-            "PreSeason_mean":      float(mvs[pid][0]),
-            "PreSeason_var":    float(mvs[pid][1]),
-            "PreSeason_skew":  float(mvs[pid][2]),
+            "PreSeason_a":      float(player_params[pid][0]),
+            "PreSeason_loc":    float(player_params[pid][1]),
+            "PreSeason_scale":  float(player_params[pid][2]),
             "PreSeason_weight": float(player_params[pid][3]),
         }
         for pid in pids
@@ -707,7 +701,7 @@ def simulate_season(
     # Reorder columns: player identity first, then pre-season params, then post-season params, then season results
     col_order = [
         "Player",
-        "PreSeason_mean", "PreSeason_var", "PreSeason_skew", "PreSeason_weight",
+        "PreSeason_a", "PreSeason_loc", "PreSeason_scale", "PreSeason_weight",
         "PostSeason_mean", "PostSeason_var", "PostSeason_skew", "PostSeason_weight",
         "PostSeason_rounds_played",
         "SeasonPoints", "SeasonRank",
@@ -723,6 +717,95 @@ def simulate_season(
         weight_history.index.name = "event_index"
 
     return season_summary, event_results, weight_history
+
+
+# ── Monte Carlo wrapper ────────────────────────────────────────────────────────
+
+def run_n_simulations(
+    player_params: dict,
+    schedule: list,
+    n: int = 100,
+    base_seed: int = 0,
+    dynamic_weight_config=None,
+    output_csv_path=None,
+) -> "pd.DataFrame":
+    """
+    Run n independent season simulations and summarise finish-position probabilities.
+
+    Each simulation uses a distinct seed (base_seed + i) so results are
+    independent but reproducible.
+
+    Parameters
+    ----------
+    player_params : dict
+        pid -> (a, loc, scale, weight)
+    schedule : list[TournamentType]
+    n : int
+        Number of simulations to run.
+    base_seed : int
+        Seeds run from base_seed to base_seed + n - 1.
+    dynamic_weight_config : DynamicWeightConfig or None
+    output_csv_path : str or None
+        If provided, the summary DataFrame is written to this path.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per player, sorted by Win_pct descending. Columns:
+        Player, Win_pct, Top10_pct, Top20_pct, Top50_pct, Avg_rank
+    """
+    import pandas as pd
+
+    pids = list(player_params.keys())
+    counts = {pid: {"win": 0, "top10": 0, "top20": 0, "top50": 0, "rank_sum": 0}
+              for pid in pids}
+
+    for i in range(n):
+        season_summary, _, _ = simulate_season(
+            player_params,
+            schedule,
+            seed=base_seed + i,
+            dynamic_weight_config=dynamic_weight_config,
+        )
+
+        rank_lookup = season_summary.set_index("Player")["SeasonRank"].to_dict()
+
+        for pid in pids:
+            rank = rank_lookup.get(pid)
+            if rank is None:
+                continue
+            counts[pid]["rank_sum"] += rank
+            if rank == 1:
+                counts[pid]["win"]   += 1
+            if rank <= 10:
+                counts[pid]["top10"] += 1
+            if rank <= 20:
+                counts[pid]["top20"] += 1
+            if rank <= 50:
+                counts[pid]["top50"] += 1
+
+    rows = []
+    for pid in pids:
+        c = counts[pid]
+        rows.append({
+            "Player":    pid,
+            "Win_pct":   round(c["win"]   / n * 100, 2),
+            "Top10_pct": round(c["top10"] / n * 100, 2),
+            "Top20_pct": round(c["top20"] / n * 100, 2),
+            "Top50_pct": round(c["top50"] / n * 100, 2),
+            "Avg_rank":  round(c["rank_sum"] / n, 2),
+        })
+
+    results = (
+        pd.DataFrame(rows)
+        .sort_values("Win_pct", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    if output_csv_path is not None:
+        results.to_csv(output_csv_path, index=False)
+
+    return results
 
 # ── Diagnostics ────────────────────────────────────────────────────────────────
 
@@ -807,24 +890,23 @@ if __name__ == "__main__":
         weight_floor=0.05,
     )
 
-    mvs, player_params = build_player_generators(moments)
+    player_params = build_player_generators(moments)
 
     # -- moment check --
     comparison = simulate_and_compare_player(
         moments, player_params, player_id="Scottie Scheffler",
         n_rounds=300000, seed=7,
     )
-    print(comparison)
+    #print(comparison)
 
     # -- static season --
     season_static, events_static, _ = simulate_season(
-        mvs,
         player_params,
         SEASON_SCHEDULE,
         seed=123,
     )
-    print("\n=== Static weights ===")
-    print(season_static.head(26))
+    #print("\n=== Static weights ===")
+    #print(season_static.head(26))
 
     # -- dynamic season --
     dw_cfg = DynamicWeightConfig(
@@ -837,19 +919,28 @@ if __name__ == "__main__":
     )
 
     season_dynamic, events_dynamic, weight_history = simulate_season(
-        mvs,
         player_params,
         SEASON_SCHEDULE,
         seed=123,
         dynamic_weight_config=dw_cfg,
     )
-    print("\n=== Dynamic weights ===")
-    print(season_dynamic.head(26))
+    #print("\n=== Dynamic weights ===")
+    #print(season_dynamic.head(26))
 
     # -- weight trajectory plot --
     baseline_weights = {pid: float(player_params[pid][3]) for pid in player_params}
-    plot_weight_trajectory(weight_history, "Scottie Scheffler", baseline_weights)
+    #plot_weight_trajectory(weight_history, "Scottie Scheffler", baseline_weights)
 
     # -- appearance count comparison --
-    print("\n=== Appearance count comparison ===")
-    print(compare_appearance_counts(events_static, events_dynamic))
+    #print("\n=== Appearance count comparison ===")
+    #print(compare_appearance_counts(events_static, events_dynamic))
+
+    mc_results = run_n_simulations(
+        player_params,
+        SEASON_SCHEDULE,
+        n=10,
+        base_seed=0,
+        dynamic_weight_config=dw_cfg,
+        output_csv_path="mc_results.csv",
+        )   
+    print(mc_results.head(20))
