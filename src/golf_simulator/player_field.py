@@ -8,11 +8,13 @@ Q-school stage, a fixed eligibility pool) that don't exist in
 ``data/seasons/``.
 """
 
+from glob import glob
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from golf_simulator.data_loading import compute_player_stats
 from golf_simulator.distributions import build_player_generators, skewnorm_params_from_moments
 
 DEFAULT_ID_COL = "player_id"
@@ -123,3 +125,48 @@ def load_custom_field(
         weight_col: "Weight",
     })
     return build_player_generators(renamed)
+
+
+def load_player_pool(data_config, participation_config) -> dict:
+    """
+    Build a player pool from a `DataConfig`, custom field or historical data.
+
+    Uses `load_custom_field` if `data_config.field_file` is set, otherwise
+    fits player distributions from historical season CSVs in
+    `data_config.season_dir` (same pipeline as the old inline logic in
+    `cli.py`). Shared by the `season` and `monday-chase` subcommands so both
+    can load one or more player pools identically.
+
+    Parameters
+    ----------
+    data_config : golf_simulator.settings.DataConfig
+    participation_config : golf_simulator.settings.ParticipationWeightConfig
+        Only used for the historical-data path.
+
+    Returns
+    -------
+    dict
+        pid -> (a, loc, scale, weight)
+
+    Raises
+    ------
+    FieldError
+        If a custom field file is invalid, or no historical CSVs are found
+        in `data_config.season_dir`.
+    """
+    if data_config.field_file:
+        return load_custom_field(data_config.field_file)
+
+    csv_paths = sorted(glob(str(Path(data_config.season_dir) / "*.csv")))
+    if not csv_paths:
+        raise FieldError(f"No CSV files found in {data_config.season_dir}")
+
+    moments = compute_player_stats(
+        csv_paths,
+        data_config.player_column,
+        data_config.score_column,
+        min_avg_rounds=participation_config.min_avg_rounds,
+        weight_power=participation_config.weight_power,
+        weight_floor=participation_config.weight_floor,
+    )
+    return build_player_generators(moments)

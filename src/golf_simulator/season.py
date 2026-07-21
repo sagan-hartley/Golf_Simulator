@@ -57,6 +57,92 @@ def validate_field_size(player_params: dict, schedule: list) -> None:
         )
 
 
+def play_event(player_params: dict, field: list, tournament_type, rng: np.random.Generator):
+    """
+    Simulate one event (2 rounds, cut, 2 more rounds, points) for a given field.
+
+    This is the shared core `simulate_season`'s per-event loop uses internally,
+    also reusable directly by anything that needs to simulate a single event
+    against a caller-supplied field rather than a weighted-sampled one (e.g.
+    a field mixing several player pools).
+
+    Parameters
+    ----------
+    player_params : dict
+        pid -> (a, loc, scale, weight). Must cover every id in `field`.
+    field : list
+        Player ids competing in this event.
+    tournament_type : TournamentType
+    rng : numpy.random.Generator
+
+    Returns
+    -------
+    results : pd.DataFrame
+        Columns: Player, TotalScore, FinalRank, Points, TournamentType.
+        Missed-cut players have TotalScore/FinalRank = NaN and Points = 0.0 --
+        this is the one easy-to-get-wrong detail worth reusing rather than
+        re-deriving: a player who misses the cut must still appear with a
+        NaN rank, not be silently absent.
+    scores_pre : numpy.ndarray
+        Shape (len(field), CUT_AFTER_ROUND) -- every player's pre-cut rounds.
+    survivors : list
+        Player ids who made the cut, in `field` order.
+    scores_post : numpy.ndarray
+        Shape (len(survivors), remaining rounds) -- survivors' post-cut rounds.
+    """
+    cfg = tournament_type.value
+
+    scores_pre = sample_round_scores_for_players(
+        player_params, CUT_AFTER_ROUND, field, random_state=rng
+    )
+    totals_2r = scores_pre.sum(axis=1)
+
+    df2 = pd.DataFrame({
+        PLAYER_ID_COL: field,
+        TOTAL_2R_COL: totals_2r,
+    })
+
+    made_cut = apply_cut(df2, cfg.cut_rule)
+    survivors = [pid for pid in field if pid in made_cut]
+
+    remaining_rounds = ROUNDS_PER_EVENT - CUT_AFTER_ROUND
+    scores_post = sample_round_scores_for_players(
+        player_params, remaining_rounds, survivors, random_state=rng
+    )
+    totals_post = scores_post.sum(axis=1)
+
+    surv_totals_2r = df2.set_index(PLAYER_ID_COL).loc[survivors, TOTAL_2R_COL].values
+    final_totals = surv_totals_2r + totals_post
+
+    results_cut = pd.DataFrame({
+        "Player": survivors,
+        "TotalScore": final_totals,
+    })
+
+    results_cut = assign_points_with_ties(
+        results_cut,
+        event_type=cfg.points_type,
+        points_tables=POINTS_TABLES,
+        score_col="TotalScore",
+    )
+
+    missed = [pid for pid in field if pid not in made_cut]
+    if missed:
+        missed_df = pd.DataFrame({
+            "Player": missed,
+            "TotalScore": np.nan,
+            "FinalRank": np.nan,
+            "Points": 0.0,
+        })
+        results = pd.concat([results_cut, missed_df], ignore_index=True)
+    else:
+        results = results_cut.copy()
+
+    results["TournamentType"] = tournament_type.name
+
+    return results, scores_pre, survivors, scores_post
+
+
 def simulate_season(
     player_params: dict,
     schedule: list,
@@ -130,64 +216,19 @@ def simulate_season(
             p=current_p,
         ).tolist()
 
-        scores_pre = sample_round_scores_for_players(
-            player_params, CUT_AFTER_ROUND, field, random_state=rng
+        results, scores_pre, survivors, scores_post = play_event(
+            player_params, field, tournament_type, rng
         )
-        totals_2r = scores_pre.sum(axis=1)
 
-        # Record pre-cut round scores for every player in the field
+        # Record every simulated round score for post-season empirical moments
         for i, pid in enumerate(field):
             season_round_scores[pid].extend(scores_pre[i, :].tolist())
-
-        df2 = pd.DataFrame({
-            PLAYER_ID_COL: field,
-            TOTAL_2R_COL: totals_2r,
-        })
-
-        made_cut = apply_cut(df2, cfg.cut_rule)
-        survivors = [pid for pid in field if pid in made_cut]
-
-        remaining_rounds = ROUNDS_PER_EVENT - CUT_AFTER_ROUND
-        scores_post = sample_round_scores_for_players(
-            player_params, remaining_rounds, survivors, random_state=rng
-        )
-        totals_post = scores_post.sum(axis=1)
-
-        # Record post-cut round scores for survivors
         for i, pid in enumerate(survivors):
             season_round_scores[pid].extend(scores_post[i, :].tolist())
-
-        surv_totals_2r = df2.set_index(PLAYER_ID_COL).loc[survivors, TOTAL_2R_COL].values
-        final_totals = surv_totals_2r + totals_post
-
-        results_cut = pd.DataFrame({
-            "Player": survivors,
-            "TotalScore": final_totals,
-        })
-
-        results_cut = assign_points_with_ties(
-            results_cut,
-            event_type=cfg.points_type,
-            points_tables=POINTS_TABLES,
-            score_col="TotalScore",
-        )
-
-        missed = [pid for pid in field if pid not in made_cut]
-        if missed:
-            missed_df = pd.DataFrame({
-                "Player": missed,
-                "TotalScore": np.nan,
-                "FinalRank": np.nan,
-                "Points": 0.0,
-            })
-            results = pd.concat([results_cut, missed_df], ignore_index=True)
-        else:
-            results = results_cut.copy()
 
         for row in results.itertuples(index=False):
             season_points[str(row.Player)] += float(row.Points)
 
-        results["TournamentType"] = tournament_type.name
         return results
 
     for tournament_type in schedule:

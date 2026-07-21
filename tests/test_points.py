@@ -100,3 +100,19 @@ def test_apply_cut_unknown_rule_raises():
     df = pd.DataFrame({"player_id": ["A"], "total_2r": [140]})
     with pytest.raises(ValueError):
         points_mod.apply_cut(df, "not-a-rule")
+
+
+def test_top_n_with_ties_no_ties():
+    df = pd.DataFrame({"id": ["A", "B", "C", "D"], "score": [1, 2, 3, 4]})
+    assert points_mod.top_n_with_ties(df, "id", "score", 2) == {"A", "B"}
+
+
+def test_top_n_with_ties_includes_tie_at_cutoff():
+    df = pd.DataFrame({"id": ["A", "B", "C", "D"], "score": [1, 2, 2, 4]})
+    # cutoff is rank 2 (score 2); C ties at 2 so also advances
+    assert points_mod.top_n_with_ties(df, "id", "score", 2) == {"A", "B", "C"}
+
+
+def test_top_n_with_ties_n_exceeds_field_returns_everyone():
+    df = pd.DataFrame({"id": ["A", "B"], "score": [1, 2]})
+    assert points_mod.top_n_with_ties(df, "id", "score", 10) == {"A", "B"}

@@ -1,0 +1,82 @@
+# =============================================================================
+# Golf Simulator — monday_chase.yaml
+# =============================================================================
+# Settings for the "chasing Mondays" analysis: how often a player can earn
+# their way into a Tour event through Monday qualifying, and then parlay a
+# good finish into skipping Monday qualifying the following week.
+#
+# Run with: golf-sim monday-chase
+#
+# Same editing rules as config/settings.yaml: use spaces (not Tab) for
+# indentation, and always put a space after the colon.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# aspirant_pool
+# -----------------------------------------------------------------------------
+# The players attempting to chase Mondays. IMPORTANT: there is no separate
+# "how many players show up to Monday qualifying" setting -- the Monday
+# field on a given week is simply every aspirant who isn't currently exempt,
+# drawn from this ENTIRE pool. To realistically model a 100-150 player
+# Monday qualifier, this pool itself needs that many rows. See
+# docs/USER_GUIDE.md ("Chasing Mondays") for a worked example of building a
+# custom aspirant pool with a specific player's skill level (or several, to
+# compare side by side).
+# -----------------------------------------------------------------------------
+aspirant_pool:
+  # OPTIONAL. Path to a custom field file (player_id,mean,variance,skew,weight
+  # -- see docs/USER_GUIDE.md). Leave null to use historical data below instead.
+  field_file: null
+
+  # Only used when field_file is null.
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# main_event_pool
+# -----------------------------------------------------------------------------
+# The regular tournament field a Monday qualifier is trying to crash --
+# generally a stronger population than the aspirant pool. Needs at least
+# 156 players (a standard Tour event's field size).
+# -----------------------------------------------------------------------------
+main_event_pool:
+  # OPTIONAL. Same format as aspirant_pool.field_file above. Leave null to
+  # use historical Tour data (the realistic default for "the field they're
+  # trying to crash").
+  field_file: null
+
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# chase
+# -----------------------------------------------------------------------------
+chase:
+  # Fraction of the Monday field who qualify for that week's event (with
+  # ties at the cutoff all advancing). Real Monday qualifiers usually run
+  # 0.03-0.05 (3-5%). Must be greater than 0 and at most 1.
+  advance_pct: 0.04
+
+  # Finish this rank or better in the main event to earn direct entry (skip
+  # Monday) into next week's field. Must be at least 1.
+  parlay_top_n: 25
+
+  # How many weeks to simulate the chase for. The user's original framing
+  # was "repeating the game 5-10 times" -- try a few values in this range.
+  n_weeks: 8
+
+  # How many independent chases to simulate per aspirant when estimating
+  # probabilities. Higher = more stable estimates, slower to run.
+  n_simulations: 200
+
+  # Starting random seed; simulation i uses base_seed + i.
+  base_seed: 0
+
+# -----------------------------------------------------------------------------
+# output
+# -----------------------------------------------------------------------------
+output:
+  output_dir: outputs
+  filename: monday_chase_results.csv

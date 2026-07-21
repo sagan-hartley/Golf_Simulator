@@ -3,9 +3,42 @@
 import numpy as np
 import pandas as pd
 
-from golf_simulator.cli import main
+from golf_simulator.cli import main, parse_args
 
 N_PLAYERS = 170  # must exceed the largest TournamentType field_size (156, REGULAR)
+
+
+def _write_monday_chase_field_csv(path, n_players, mean_base=71.0, seed=0):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_players):
+        rows.append({
+            "player_id": f"{path.stem}_{i}",
+            "mean": float(mean_base + rng.uniform(0, 3)),
+            "variance": float(rng.uniform(2, 6)),
+            "skew": float(rng.uniform(-0.2, 0.2)),
+            "weight": 1.0,
+        })
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def _write_monday_chase_settings_yaml(path, aspirant_file, main_file, output_dir):
+    path.write_text(
+        f"""
+        aspirant_pool:
+          field_file: {aspirant_file}
+        main_event_pool:
+          field_file: {main_file}
+        chase:
+          advance_pct: 0.2
+          parlay_top_n: 25
+          n_weeks: 2
+          n_simulations: 3
+        output:
+          output_dir: {output_dir}
+          filename: chase.csv
+        """
+    )
 
 
 def _write_field_csv(path, n_players):
@@ -87,3 +120,44 @@ def test_main_reports_clear_error_when_field_too_small(tmp_path, monkeypatch, ca
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "Not enough players" in captured.err
+
+
+def test_no_subcommand_defaults_to_season():
+    assert parse_args([]).command == "season"
+    assert parse_args(["--settings", "x.yaml"]).command == "season"
+    assert parse_args(["season"]).command == "season"
+    assert parse_args(["monday-chase"]).command == "monday-chase"
+
+
+def test_bare_help_shows_top_level_subcommand_list(capsys):
+    try:
+        parse_args(["--help"])
+    except SystemExit:
+        pass
+    captured = capsys.readouterr()
+    assert "monday-chase" in captured.out
+    assert "season" in captured.out
+
+
+def test_monday_chase_runs_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    aspirant_path = tmp_path / "aspirants.csv"
+    _write_monday_chase_field_csv(aspirant_path, 130, mean_base=71.0)
+
+    main_path = tmp_path / "main_field.csv"
+    _write_monday_chase_field_csv(main_path, 160, mean_base=69.0, seed=1)
+
+    settings_path = tmp_path / "monday_chase.yaml"
+    out_dir = tmp_path / "outputs"
+    _write_monday_chase_settings_yaml(settings_path, aspirant_path, main_path, out_dir)
+
+    exit_code = main(["monday-chase", "--settings", str(settings_path)])
+
+    assert exit_code == 0
+    out_file = out_dir / "chase.csv"
+    assert out_file.exists()
+
+    results = pd.read_csv(out_file)
+    assert len(results) == 130
+    assert "Any_Parlay_pct" in results.columns

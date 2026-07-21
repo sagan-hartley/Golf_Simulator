@@ -22,11 +22,14 @@ pip install -e ".[dev]"
 
 ## Quick start
 
+`golf-sim` has two subcommands (`golf-sim` alone defaults to `season`):
+
 ```bash
-golf-sim
+golf-sim season          # or just `golf-sim`
+golf-sim monday-chase
 ```
 
-This reads [`config/settings.yaml`](config/settings.yaml) and
+`season` reads [`config/settings.yaml`](config/settings.yaml) and
 [`config/season_schedule.csv`](config/season_schedule.csv), fits player
 distributions from the CSVs in `data/seasons/` (or loads a custom field
 directly if `data.field_file` is set — see USER_GUIDE), and writes three
@@ -37,28 +40,35 @@ result files to `outputs/`:
 - `mc_results.csv` — win/top-10/top-20/top-50 probabilities across many
   simulated seasons
 
-Run `golf-sim --help` for CLI options (custom settings/schedule paths).
+`monday-chase` reads [`config/monday_chase.yaml`](config/monday_chase.yaml)
+and simulates the "chasing Mondays" analysis (see USER_GUIDE), writing
+`outputs/monday_chase_results.csv`.
+
+Run `golf-sim --help` or `golf-sim <subcommand> --help` for CLI options.
 
 ## Architecture
 
 ```
 config/settings.yaml         user-tunable scalar settings (see USER_GUIDE)
 config/season_schedule.csv   the season calendar (see USER_GUIDE)
+config/monday_chase.yaml     Monday-qualifier chase analysis settings (see USER_GUIDE)
 data/seasons/*.csv           historical round-score data, one file per season
 data/custom_fields/          example synthetic/hypothetical field files (see USER_GUIDE)
 src/golf_simulator/
     domain.py                 fixed tournament structure: enums, points tables
     settings.py                settings.yaml loader/validator
+    monday_chase_settings.py    monday_chase.yaml loader/validator
     schedule.py                 season_schedule.csv loader/validator
     data_loading.py            historical data -> per-player mean/variance/skew
-    player_field.py            custom field file loader (alternative to historical data)
+    player_field.py            custom field loader + pool-loading dispatch
     distributions.py           skew-normal fitting + score sampling
-    points.py                  points-with-ties assignment, cut logic
+    points.py                  points-with-ties assignment, cut logic, top-N-with-ties
     weights.py                  dynamic (rank-based) weight nudging
-    season.py                   simulate_season: one full season
+    season.py                   simulate_season (full season) + play_event (one event)
     monte_carlo.py              run_n_simulations: many seasons, aggregated
+    monday_chase.py             Monday-qualifier chase simulation + aggregation
     diagnostics.py              plotting/comparison helpers (interactive use)
-    cli.py                      `golf-sim` entry point
+    cli.py                      `golf-sim` entry point (season / monday-chase subcommands)
 tests/                        pytest suite, one file per module above
 ```
 

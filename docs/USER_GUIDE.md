@@ -181,7 +181,7 @@ need, rather than the simulation just failing partway through.
 
 ## Running the simulation
 
-Each time you want to run it:
+Each time you want to run the full-season simulation:
 
 1. Open Terminal.
 2. Go to the folder and turn on the project's Python environment:
@@ -193,6 +193,8 @@ Each time you want to run it:
    ```
    golf-sim
    ```
+   (this is short for `golf-sim season`; there's also `golf-sim monday-chase`
+   for the separate analysis described below in "Chasing Mondays")
 
 It'll print a preview table and finish with `Done. Results written to
 outputs/`.
@@ -211,6 +213,78 @@ Open the `outputs/` folder — you can open any of these directly in Excel:
   percentage chance of winning (`Win_pct`), finishing top 10, top 20, top
   50, and their average finishing rank, based on many simulated seasons.
 
+## Chasing Mondays
+
+This is a separate, second analysis, answering a different question: for a
+player without full Tour status, is it worth trying to "chase Mondays"?
+
+**What "chasing Mondays" means:** a player without status can enter a
+1-round Monday qualifier (usually 100-150 players) where roughly the top
+3-5% earn their way into that week's tournament. If they then finish well
+enough in that tournament (inside a rank you choose, e.g. top 25), they earn
+a direct spot in *next* week's field too — skipping Monday qualifying that
+week. If not, they're back to grinding Mondays. This tool simulates that
+whole cycle over several weeks and tells you how often a player of a given
+skill level ever makes it through, and ever "parlays" a good finish into an
+exemption.
+
+### Setting it up
+
+This analysis needs **two separate populations**, each set up the same way
+as the custom field file described above (see "Using your own field instead
+of history"):
+
+1. **`aspirant_pool`** — the players attempting to chase Mondays. There's no
+   separate "how many players show up" setting: every non-exempt player in
+   this pool plays Monday each week, so to realistically model a 100-150
+   player Monday qualifier, this pool needs that many rows. This is where
+   you'd put one or more hypothetical players at different skill levels (say,
+   a `mean` of 70 vs. 74) to compare how much skill matters.
+2. **`main_event_pool`** — the (presumably stronger) field they're trying to
+   crash. This can be left pointing at the real historical data, or be its
+   own custom field, but it needs at least 156 players and **cannot share
+   any player ids with `aspirant_pool`**.
+
+Both are configured in `config/monday_chase.yaml`, which has the same
+heavily-commented format as `settings.yaml`. Example:
+
+```yaml
+aspirant_pool:
+  field_file: data/custom_fields/my_aspirants.csv
+
+main_event_pool:
+  field_file: null   # null = use real historical Tour data
+
+chase:
+  advance_pct: 0.04    # ~4% of the Monday field qualifies
+  parlay_top_n: 25     # top-25 finish earns next week's exemption
+  n_weeks: 8            # simulate an 8-week chase
+  n_simulations: 200
+```
+
+### Running it
+
+```
+cd ~/VSCodeProjects/Golf_Simulator
+source .venv/bin/activate
+golf-sim monday-chase
+```
+
+Results land in `outputs/monday_chase_results.csv`, one row per aspirant:
+
+- **`Any_Monday_Advance_pct`** — chance of qualifying through at least one
+  Monday over the whole chase.
+- **`Any_Parlay_pct`** — chance of ever earning a next-week exemption. This
+  is the headline "is this worth it" number.
+- **`Avg_Weeks_Played`** — average number of weeks (out of `n_weeks`) they
+  actually got to play the real tournament.
+- **`Avg_Monday_Attempts`** — average number of Mondays they had to attempt
+  (players who parlay attempt fewer Mondays, since exempt weeks skip it).
+- **`Advance_Rate_Per_Monday_Attempt`** — chance of advancing on any single
+  Monday attempt. Use this one (not `Any_Monday_Advance_pct`) to fairly
+  compare skill levels, since a stronger player attempts fewer Mondays
+  overall.
+
 ## Troubleshooting
 
 | What you see | What it means | What to do |
@@ -222,6 +296,8 @@ Open the `outputs/` folder — you can open any of these directly in Excel:
 | `Error: no CSV files found in data/seasons` | You're running the command from the wrong folder | Run `cd ~/VSCodeProjects/Golf_Simulator` first |
 | `Error: Not enough players to simulate this schedule: it has 15 player(s), but the largest scheduled event needs a field of 156.` | Your custom `field_file` doesn't have enough players for the schedule | Add more rows to your field file, or use a schedule with smaller events |
 | `Error: ... player id '7' has invalid variance=0.0 (must be a positive, finite number)` | A row in your `field_file` has a bad `variance` or `weight` value | Open the file, find that `player_id`, fix the value (must be greater than 0) |
+| `Error: aspirant_pool and main_event_pool share player id(s): ...` | Both Monday-chase pools point at the same data (e.g. both left as historical data) | Point at least one of `aspirant_pool`/`main_event_pool` at a distinct custom `field_file` |
+| `Error: Week 3: ... aspirants ... exceed the main event's field size of 156` | Your `chase` settings let too many aspirants into one week's field | Lower `advance_pct`, tighten `parlay_top_n`, or shrink `aspirant_pool` |
 
 If an error message doesn't match anything above, copy the exact text of
 the error — it's written in plain language and names the specific file and
