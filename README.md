@@ -22,11 +22,12 @@ pip install -e ".[dev]"
 
 ## Quick start
 
-`golf-sim` has two subcommands (`golf-sim` alone defaults to `season`):
+`golf-sim` has three subcommands (`golf-sim` alone defaults to `season`):
 
 ```bash
 golf-sim season          # or just `golf-sim`
 golf-sim monday-chase
+golf-sim card-retention
 ```
 
 `season` reads [`config/settings.yaml`](config/settings.yaml) and
@@ -44,6 +45,11 @@ result files to `outputs/`:
 and simulates the "chasing Mondays" analysis (see USER_GUIDE), writing
 `outputs/monday_chase_results.csv`.
 
+`card-retention` reads
+[`config/card_retention.yaml`](config/card_retention.yaml) and simulates the
+"card retention" analysis under a proposed new PGA Tour alignment (see
+USER_GUIDE), writing `outputs/card_retention_results.csv`.
+
 Run `golf-sim --help` or `golf-sim <subcommand> --help` for CLI options.
 
 ## Architecture
@@ -52,13 +58,16 @@ Run `golf-sim --help` or `golf-sim <subcommand> --help` for CLI options.
 config/settings.yaml         user-tunable scalar settings (see USER_GUIDE)
 config/season_schedule.csv   the season calendar (see USER_GUIDE)
 config/monday_chase.yaml     Monday-qualifier chase analysis settings (see USER_GUIDE)
+config/card_retention.yaml   card retention analysis settings (see USER_GUIDE)
+config/alignment_schedule.csv  season calendar for the card retention analysis
 data/seasons/*.csv           historical round-score data, one file per season
 data/custom_fields/          example synthetic/hypothetical field files (see USER_GUIDE)
 src/golf_simulator/
     domain.py                 fixed tournament structure: enums, points tables
     settings.py                settings.yaml loader/validator
     monday_chase_settings.py    monday_chase.yaml loader/validator
-    schedule.py                 season_schedule.csv loader/validator
+    card_retention_settings.py  card_retention.yaml loader/validator
+    schedule.py                 season_schedule.csv loader/validator (any TournamentType)
     data_loading.py            historical data -> per-player mean/variance/skew
     player_field.py            custom field loader + pool-loading dispatch
     distributions.py           skew-normal fitting + score sampling
@@ -67,8 +76,9 @@ src/golf_simulator/
     season.py                   simulate_season (full season) + play_event (one event)
     monte_carlo.py              run_n_simulations: many seasons, aggregated
     monday_chase.py             Monday-qualifier chase simulation + aggregation
+    card_retention.py           card retention (two-pool) simulation + aggregation
     diagnostics.py              plotting/comparison helpers (interactive use)
-    cli.py                      `golf-sim` entry point (season / monday-chase subcommands)
+    cli.py                      `golf-sim` entry point (season / monday-chase / card-retention)
 tests/                        pytest suite, one file per module above
 ```
 

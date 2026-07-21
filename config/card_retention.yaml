@@ -1,0 +1,103 @@
+# =============================================================================
+# Golf Simulator — card_retention.yaml
+# =============================================================================
+# Settings for the "card retention" analysis: under a fixed pool of eligible
+# players (a "card pool") playing a season of mostly-120-player events plus
+# four 156-player majors (topped up from a separate "outside qualifiers"
+# pool), what's the probability each player finishes well enough to keep
+# their card for next season.
+#
+# Run with: golf-sim card-retention
+#
+# Same editing rules as config/settings.yaml: use spaces (not Tab) for
+# indentation, and always put a space after the colon.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# card_pool
+# -----------------------------------------------------------------------------
+# The fixed pool of players holding a Tour card (roughly 130 in the scenario
+# this models). Every one of them is eligible for every event, including all
+# four majors. See docs/USER_GUIDE.md ("Card Retention") for a worked example
+# of building a custom card pool with specific skill levels.
+# -----------------------------------------------------------------------------
+card_pool:
+  # OPTIONAL. Path to a custom field file (player_id,mean,variance,skew,weight
+  # -- see docs/USER_GUIDE.md). Leave null to use historical data below instead.
+  field_file: null
+
+  # Only used when field_file is null.
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# outside_pool
+# -----------------------------------------------------------------------------
+# Players who don't hold a card but can still play majors (e.g. via world
+# ranking or open qualifying). Only used to fill major fields beyond the card
+# pool -- never appears in non-major events, and never appears in the
+# retention results (only card_pool players' outcomes are tracked).
+# Must NOT share any player ids with card_pool.
+# -----------------------------------------------------------------------------
+outside_pool:
+  field_file: null
+
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# schedule
+# -----------------------------------------------------------------------------
+schedule:
+  # Path to the season schedule CSV. Same format as config/season_schedule.csv
+  # (event_number,tournament_type), but for this analysis every non-major row
+  # should use ALIGNMENT_REGULAR (120-player field) rather than REGULAR
+  # (156-player field, which the card pool alone likely can't fill).
+  path: config/alignment_schedule.csv
+
+# -----------------------------------------------------------------------------
+# dynamic_weights
+# -----------------------------------------------------------------------------
+# Optional rank-based nudging of card-pool participation odds across the
+# season, same mechanic and meaning as in config/settings.yaml. Applies only
+# within the card pool.
+# -----------------------------------------------------------------------------
+dynamic_weights:
+  enabled: false
+  nudge_amount: 0.05
+  top_pct: 0.25
+  bot_pct: 0.25
+  min_weight: 0.001
+  max_weight_multiplier: 2.0
+
+# -----------------------------------------------------------------------------
+# retention
+# -----------------------------------------------------------------------------
+retention:
+  # A card-pool player who finishes the season ranked this or better (out of
+  # the whole card pool, not the wider field) keeps their card. The user's
+  # original framing was "top 90" out of a ~130-player pool; a ~20% turnover
+  # target would instead land closer to 104 -- try both and compare. Must be
+  # at least 1.
+  cutoff: 90
+
+  # How many independent seasons to simulate per player when estimating
+  # retention probability. Higher = more stable estimates, slower to run.
+  n_simulations: 200
+
+  # Starting random seed for the Monte Carlo simulations; simulation i uses
+  # base_seed + i.
+  base_seed: 0
+
+  # Random seed reserved for future single-season diagnostics (not currently
+  # used by golf-sim card-retention, which only reports Monte Carlo results).
+  season_seed: 123
+
+# -----------------------------------------------------------------------------
+# output
+# -----------------------------------------------------------------------------
+output:
+  output_dir: outputs
+  filename: card_retention_results.csv

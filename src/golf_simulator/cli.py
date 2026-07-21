@@ -1,7 +1,7 @@
 """cli.py.
 
 Command-line entry point (installed as the ``golf-sim`` console
-script), with two subcommands:
+script), with three subcommands:
 
 ``golf-sim season`` (the default when no subcommand is given, for
 backward compatibility) -- loads config/settings.yaml and
@@ -12,12 +12,22 @@ seasons, and writes all three results to the configured output folder.
 ``golf-sim monday-chase`` -- loads config/monday_chase.yaml, builds an
 aspirant pool and a main-event pool, and simulates the Monday-qualifier
 chase analysis (see golf_simulator.monday_chase).
+
+``golf-sim card-retention`` -- loads config/card_retention.yaml, builds
+a card pool and an outside-qualifiers pool, and simulates the card
+retention analysis (see golf_simulator.card_retention).
 """
 
 import argparse
 import sys
 from pathlib import Path
 
+from golf_simulator.card_retention import run_n_alignment_seasons
+from golf_simulator.card_retention_settings import (
+    DEFAULT_CARD_RETENTION_SETTINGS_PATH,
+    CardRetentionSettingsError,
+    load_card_retention_settings,
+)
 from golf_simulator.monday_chase import run_n_monday_chases
 from golf_simulator.monday_chase_settings import (
     DEFAULT_MONDAY_CHASE_SETTINGS_PATH,
@@ -35,7 +45,7 @@ from golf_simulator.settings import (
     load_settings,
 )
 
-_SUBCOMMANDS = ("season", "monday-chase")
+_SUBCOMMANDS = ("season", "monday-chase", "card-retention")
 
 
 def parse_args(argv=None):
@@ -77,6 +87,15 @@ def parse_args(argv=None):
         "--settings",
         default=DEFAULT_MONDAY_CHASE_SETTINGS_PATH,
         help=f"Path to monday_chase.yaml (default: {DEFAULT_MONDAY_CHASE_SETTINGS_PATH})",
+    )
+
+    retention_parser = subparsers.add_parser(
+        "card-retention", help="Simulate the card-retention analysis"
+    )
+    retention_parser.add_argument(
+        "--settings",
+        default=DEFAULT_CARD_RETENTION_SETTINGS_PATH,
+        help=f"Path to card_retention.yaml (default: {DEFAULT_CARD_RETENTION_SETTINGS_PATH})",
     )
 
     return parser.parse_args(argv)
@@ -159,11 +178,48 @@ def _run_monday_chase(args) -> int:
     return 0
 
 
+def _run_card_retention(args) -> int:
+    """Run the card-retention analysis and write results to disk."""
+    try:
+        settings = load_card_retention_settings(args.settings)
+        default_participation = ParticipationWeightConfig()
+        card_params = load_player_pool(settings.card_pool, default_participation)
+        outside_params = load_player_pool(settings.outside_pool, default_participation)
+        schedule = load_season_schedule(settings.schedule.path)
+    except (CardRetentionSettingsError, FieldError, ScheduleError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    out_dir = Path(settings.output.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        results = run_n_alignment_seasons(
+            card_params,
+            outside_params,
+            schedule,
+            n=settings.retention.n_simulations,
+            base_seed=settings.retention.base_seed,
+            dynamic_weight_config=settings.dynamic_weights,
+            retention_cutoff=settings.retention.cutoff,
+            output_csv_path=out_dir / settings.output.filename,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(results.head(20).to_string(index=False))
+    print(f"\nDone. Results written to {out_dir}/")
+    return 0
+
+
 def main(argv=None) -> int:
     """Dispatch to the requested subcommand (default: `season`)."""
     args = parse_args(argv)
     if args.command == "monday-chase":
         return _run_monday_chase(args)
+    if args.command == "card-retention":
+        return _run_card_retention(args)
     return _run_season(args)
 
 

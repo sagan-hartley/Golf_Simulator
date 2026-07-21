@@ -22,6 +22,11 @@ tournaments happen, in what order** (the schedule), and — optionally —
 **who's in the field** (either real historical players, or a field you make
 up yourself). You never need to open or edit any `.py` file.
 
+There are three separate analyses you can run: the full-season simulation
+(`golf-sim season`, the default — described first below), "Chasing Mondays"
+(`golf-sim monday-chase`), and "Card Retention" (`golf-sim card-retention`)
+— jump to whichever section answers your question.
+
 ## One-time setup (macOS)
 
 You only need to do this once.
@@ -285,6 +290,76 @@ Results land in `outputs/monday_chase_results.csv`, one row per aspirant:
   compare skill levels, since a stronger player attempts fewer Mondays
   overall.
 
+## Card Retention
+
+This is a third, separate analysis: under a possible future PGA Tour setup
+with a fixed pool of ~130 card-holding players competing in a season of
+mostly-120-player events plus the 4 majors, what's the probability a given
+player finishes ranked well enough to keep their card for next season?
+
+**Why majors need a second pool:** majors have 156-player fields in real
+life, and a 130-player card pool can't fill that alone, so majors also draw
+some players from a second "outside qualifiers" pool (representing
+world-ranking or open-qualifier entrants who don't hold a card). Every
+card-pool player is treated as eligible for every major; the outside pool
+only ever fills whatever spots are left over. Non-major events, by
+contrast, are drawn entirely from the card pool.
+
+### Setting it up
+
+Like "Chasing Mondays," this needs two populations set up the same way as
+the custom field file described earlier:
+
+1. **`card_pool`** — the ~130 players whose card status you're evaluating.
+   This is where you'd put players at different skill levels to compare.
+2. **`outside_pool`** — the players who fill out major fields beyond the
+   card pool. Needs no minimum size on its own, but `card_pool` +
+   `outside_pool` together must reach 156 (a major's field size), and the
+   two pools **cannot share any player ids**.
+
+Both are configured in `config/card_retention.yaml`. There's also a
+`schedule.path` setting pointing at a season-schedule CSV — use
+`config/alignment_schedule.csv` (or your own copy), which uses
+`ALIGNMENT_REGULAR` for non-major events (120-player field) instead of the
+regular season's `REGULAR` (156-player field, generally too big for a
+130-player card pool to fill alone).
+
+```yaml
+card_pool:
+  field_file: data/custom_fields/my_card_pool.csv
+
+outside_pool:
+  field_file: data/custom_fields/my_outside_pool.csv
+
+schedule:
+  path: config/alignment_schedule.csv
+
+retention:
+  cutoff: 90    # finish this rank or better (within the card pool) to keep your card
+  n_simulations: 200
+```
+
+### Running it
+
+```
+cd ~/VSCodeProjects/Golf_Simulator
+source .venv/bin/activate
+golf-sim card-retention
+```
+
+Results land in `outputs/card_retention_results.csv`, one row per card-pool
+player:
+
+- **`Retained_Card_pct`** — chance of finishing the season ranked at or
+  better than `retention.cutoff`, i.e. chance of keeping the card. This is
+  the headline number.
+- **`Avg_SeasonRank`** — average season-ending rank (within the card pool)
+  across all simulations.
+
+Try `retention.cutoff: 90` (as originally framed) versus something like
+`104` (closer to a ~20% turnover target for a 130-player pool) to see how
+sensitive the answer is to exactly where the cutoff line falls.
+
 ## Troubleshooting
 
 | What you see | What it means | What to do |
@@ -298,6 +373,8 @@ Results land in `outputs/monday_chase_results.csv`, one row per aspirant:
 | `Error: ... player id '7' has invalid variance=0.0 (must be a positive, finite number)` | A row in your `field_file` has a bad `variance` or `weight` value | Open the file, find that `player_id`, fix the value (must be greater than 0) |
 | `Error: aspirant_pool and main_event_pool share player id(s): ...` | Both Monday-chase pools point at the same data (e.g. both left as historical data) | Point at least one of `aspirant_pool`/`main_event_pool` at a distinct custom `field_file` |
 | `Error: Week 3: ... aspirants ... exceed the main event's field size of 156` | Your `chase` settings let too many aspirants into one week's field | Lower `advance_pct`, tighten `parlay_top_n`, or shrink `aspirant_pool` |
+| `Error: card_pool and outside_pool share player id(s): ...` | Both card-retention pools point at the same data, or use overlapping ids | Point `card_pool`/`outside_pool` at distinct custom `field_file`s |
+| `Error: Not enough players to fill the largest major's field: card_pool + outside_pool together have 135 player(s), but the largest major needs a field of 156.` | Your two card-retention pools combined are too small for a major | Add more players to `card_pool` or `outside_pool` |
 
 If an error message doesn't match anything above, copy the exact text of
 the error — it's written in plain language and names the specific file and

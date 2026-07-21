@@ -115,6 +115,11 @@ class TournamentType(Enum):
         cut_rule=CutRule.NONE,
         field_size=70,
     )
+    ALIGNMENT_REGULAR = TournamentConfig(
+        points_type=EventType.REGULAR,
+        cut_rule=CutRule.TOP_65_TIES,
+        field_size=120,
+    )
 
 
 # ── Points tables ──────────────────────────────────────────────────────────────

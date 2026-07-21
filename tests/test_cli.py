@@ -41,6 +41,47 @@ def _write_monday_chase_settings_yaml(path, aspirant_file, main_file, output_dir
     )
 
 
+def _write_card_retention_field_csv(path, n_players, mean_base=70.0, seed=0):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_players):
+        rows.append({
+            "player_id": f"{path.stem}_{i}",
+            "mean": float(mean_base + rng.uniform(0, 3)),
+            "variance": float(rng.uniform(2, 6)),
+            "skew": float(rng.uniform(-0.2, 0.2)),
+            "weight": 1.0,
+        })
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def _write_alignment_schedule_csv(path):
+    path.write_text(
+        "event_number,tournament_type\n"
+        "1,ALIGNMENT_REGULAR\n"
+        "2,MAJOR_MASTERS\n"
+    )
+
+
+def _write_card_retention_settings_yaml(path, card_file, outside_file, schedule_path, output_dir):
+    path.write_text(
+        f"""
+        card_pool:
+          field_file: {card_file}
+        outside_pool:
+          field_file: {outside_file}
+        schedule:
+          path: {schedule_path}
+        retention:
+          cutoff: 90
+          n_simulations: 3
+        output:
+          output_dir: {output_dir}
+          filename: retention.csv
+        """
+    )
+
+
 def _write_field_csv(path, n_players):
     rng = np.random.default_rng(0)
     rows = []
@@ -127,6 +168,7 @@ def test_no_subcommand_defaults_to_season():
     assert parse_args(["--settings", "x.yaml"]).command == "season"
     assert parse_args(["season"]).command == "season"
     assert parse_args(["monday-chase"]).command == "monday-chase"
+    assert parse_args(["card-retention"]).command == "card-retention"
 
 
 def test_bare_help_shows_top_level_subcommand_list(capsys):
@@ -136,6 +178,7 @@ def test_bare_help_shows_top_level_subcommand_list(capsys):
         pass
     captured = capsys.readouterr()
     assert "monday-chase" in captured.out
+    assert "card-retention" in captured.out
     assert "season" in captured.out
 
 
@@ -161,3 +204,33 @@ def test_monday_chase_runs_end_to_end(tmp_path, monkeypatch):
     results = pd.read_csv(out_file)
     assert len(results) == 130
     assert "Any_Parlay_pct" in results.columns
+
+
+def test_card_retention_runs_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    card_path = tmp_path / "card_pool.csv"
+    _write_card_retention_field_csv(card_path, 130, mean_base=70.0)
+
+    outside_path = tmp_path / "outside_pool.csv"
+    _write_card_retention_field_csv(outside_path, 40, mean_base=69.0, seed=1)
+
+    schedule_path = tmp_path / "alignment_schedule.csv"
+    _write_alignment_schedule_csv(schedule_path)
+
+    settings_path = tmp_path / "card_retention.yaml"
+    out_dir = tmp_path / "outputs"
+    _write_card_retention_settings_yaml(
+        settings_path, card_path, outside_path, schedule_path, out_dir
+    )
+
+    exit_code = main(["card-retention", "--settings", str(settings_path)])
+
+    assert exit_code == 0
+    out_file = out_dir / "retention.csv"
+    assert out_file.exists()
+
+    results = pd.read_csv(out_file)
+    assert len(results) == 130
+    assert "Retained_Card_pct" in results.columns
+    assert "Avg_SeasonRank" in results.columns
