@@ -48,15 +48,18 @@ dynamic_weights:
   # Must be between 0 and 1.
   bot_pct: 0.25
 
-  # The smallest a player's weight can ever shrink to, before the
-  # weights are re-balanced to add up to 100%. Should be a very small
-  # positive number — this just prevents a player's odds from hitting
+  # An absolute safety floor on a player's weight (applied after the
+  # baseline-relative bounds below, before re-balancing to 100%). Should
+  # be a very small positive number — it just prevents odds from hitting
   # exactly zero.
   min_weight: 0.001
 
-  # A player's weight can never grow to more than this many times
-  # their starting (baseline) weight, no matter how many nudges they
-  # earn. 2.0 = at most double their starting odds. Must be at least 1.0.
+  # Bounds how far a player's weight can drift from their starting
+  # (baseline) weight, in BOTH directions: it can grow to at most this
+  # many times baseline, and shrink to at most baseline divided by this
+  # many times. 2.0 = between half and double their starting odds, so a
+  # hot streak and a cold streak are bounded symmetrically. Must be at
+  # least 1.0.
   max_weight_multiplier: 2.0
 
 # -----------------------------------------------------------------------------
@@ -77,10 +80,15 @@ participation_weights:
   # values flatten the differences between players.
   weight_power: 1.0
 
-  # The smallest starting weight any eligible player can have, applied
-  # before their odds are normalized to add up to 100%. Must be
-  # between 0 and 1. This keeps low-participation players from having
-  # a near-zero chance of ever being selected.
+  # A floor on how low any player's starting odds can go, expressed as a
+  # fraction of the "everyone equal" weight. 0 = no floor (odds strictly
+  # proportional to participation). 0.5 = no player drops below half of an
+  # equal share. 1.0 = every below-average player is lifted to a full equal
+  # share (strongest floor). It only raises low-participation players, so
+  # the field compresses toward -- but never reaches -- perfectly flat.
+  # Must be between 0 and 1. The default 0.05 is a very weak floor that
+  # rarely binds for real data; raise it toward 1.0 to give
+  # low-participation players a fairer chance of being selected.
   weight_floor: 0.05
 
 # -----------------------------------------------------------------------------
@@ -94,7 +102,7 @@ monte_carlo:
   # player's win/top-10/top-20/top-50 probabilities. Must be at least
   # 1. Higher numbers give more stable probability estimates but take
   # longer to run.
-  n_simulations: 10
+  n_simulations: 1000
 
   # The starting random seed for the Monte Carlo simulations above.
   # Simulation 1 uses this seed, simulation 2 uses this seed + 1, and

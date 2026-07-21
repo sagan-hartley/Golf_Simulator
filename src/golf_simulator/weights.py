@@ -25,12 +25,19 @@ def nudge_weights(
     Players finishing in the bottom bucket or missing the cut get a decrease.
     Players who did not participate or finished in the middle are unchanged.
 
+    A player's weight is bounded symmetrically relative to their baseline:
+    it can grow to at most ``baseline * max_weight_multiplier`` and shrink to
+    at most ``baseline / max_weight_multiplier``, so a strong player on a cold
+    streak decays no more aggressively than a weak player on a hot streak
+    rises. ``min_weight`` is a final absolute safety floor beneath that.
+
     Parameters
     ----------
     current_weights : dict
         Current normalised weights {pid: weight}.
     baseline_weights : dict
-        Original static weights {pid: weight}, used to enforce ceiling.
+        Original static weights {pid: weight}, used for the symmetric
+        ceiling/floor bounds.
     results_df : pd.DataFrame
         Must contain columns 'Player' and 'FinalRank'.
         Missed-cut players should have FinalRank == NaN.
@@ -41,44 +48,37 @@ def nudge_weights(
     dict
         New normalised weights {pid: weight}.
     """
-    finished = results_df.dropna(subset=["FinalRank"]).copy()
-    missed_cut = (
-        results_df[results_df["FinalRank"].isna()]["Player"]
-        .astype(str)
-        .tolist()
-    )
+    finished = results_df.dropna(subset=["FinalRank"]).sort_values("FinalRank")
+    finished_pids = finished["Player"].astype(str).tolist()
+    missed_cut = results_df[results_df["FinalRank"].isna()]["Player"].astype(str).tolist()
 
-    n_finished = len(finished)
+    n_finished = len(finished_pids)
     top_cutoff = max(1, int(np.ceil(n_finished * config.top_pct)))
-    bot_cutoff = n_finished - int(np.ceil(n_finished * config.bot_pct))
+    bot_start = n_finished - int(np.ceil(n_finished * config.bot_pct))
+    # Guard against overlapping top/bottom slices (aggressive top_pct + bot_pct):
+    # a player can never be in both buckets; the top finish takes precedence.
+    bot_start = max(bot_start, top_cutoff)
 
-    finished = finished.sort_values("FinalRank").reset_index(drop=True)
-    finished["_bucket"] = "middle"
-    finished.loc[finished.index < top_cutoff, "_bucket"] = "top"
-    finished.loc[finished.index >= bot_cutoff, "_bucket"] = "bottom"
+    top_pids = set(finished_pids[:top_cutoff])
+    bottom_pids = set(finished_pids[bot_start:]) | set(missed_cut)
 
-    bucket_map = dict(zip(
-        finished["Player"].astype(str),
-        finished["_bucket"],
-    ))
-    for pid in missed_cut:
-        bucket_map[pid] = "bottom"
+    pids = list(current_weights.keys())
+    weights = np.array([current_weights[pid] for pid in pids], dtype=float)
+    baseline = np.array([baseline_weights[pid] for pid in pids], dtype=float)
 
-    new_weights = {}
-    for pid, w in current_weights.items():
-        bucket = bucket_map.get(pid)
+    multiplier = np.ones(len(pids), dtype=float)
+    for i, pid in enumerate(pids):
+        if pid in top_pids:
+            multiplier[i] = 1.0 + config.nudge_amount
+        elif pid in bottom_pids:
+            multiplier[i] = 1.0 - config.nudge_amount
+    nudged = weights * multiplier
 
-        if bucket == "top":
-            nudged = w * (1.0 + config.nudge_amount)
-        elif bucket == "bottom":
-            nudged = w * (1.0 - config.nudge_amount)
-        else:
-            nudged = w
+    # Symmetric baseline-relative bounds, then an absolute safety floor.
+    ceiling = baseline * config.max_weight_multiplier
+    floor = baseline / config.max_weight_multiplier
+    bounded = np.clip(nudged, floor, ceiling)
+    bounded = np.maximum(bounded, config.min_weight)
 
-        ceiling = baseline_weights[pid] * config.max_weight_multiplier
-        new_weights[pid] = min(nudged, ceiling)
-
-    # Floor then re-normalise
-    new_weights = {pid: max(w, config.min_weight) for pid, w in new_weights.items()}
-    total = sum(new_weights.values())
-    return {pid: w / total for pid, w in new_weights.items()}
+    bounded = bounded / bounded.sum()
+    return {pid: float(bounded[i]) for i, pid in enumerate(pids)}

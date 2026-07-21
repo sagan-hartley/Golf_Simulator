@@ -61,7 +61,17 @@ def build_participation_weights(avg_events, weight_power=1.0, weight_floor=0.0):
     weight_power : float
         Exponent applied to AvgEvents before normalization.
     weight_floor : float
-        Minimum raw weight applied before normalization.
+        Minimum share, expressed as a fraction of the uniform ``1 / N``
+        weight (where ``N`` is the number of players). For example,
+        ``0.5`` keeps every player's normalized weight at or above half of
+        what a perfectly equal field would give them; ``1.0`` lifts every
+        below-average player up to a full equal share (the strongest floor);
+        ``0.0`` disables the floor. It only raises under-weighted players --
+        it does not cap the top, so the field is compressed toward uniform
+        but never made perfectly flat. Applied *after* normalization, then
+        re-normalized -- so floored players can end up marginally below the
+        exact floor, which is negligible for the small floors this is meant
+        for.
 
     Returns
     -------
@@ -70,14 +80,22 @@ def build_participation_weights(avg_events, weight_power=1.0, weight_floor=0.0):
     """
     raw = avg_events.astype(float) ** float(weight_power)
 
-    if weight_floor > 0.0:
-        raw = np.maximum(raw, float(weight_floor))
-
     total = float(raw.sum())
     if total <= 0.0:
         raise ValueError("Weight normalization failed: sum of raw weights is <= 0")
 
-    return raw / total
+    weights = raw / total
+
+    if weight_floor > 0.0:
+        floor_share = float(weight_floor) / len(weights)
+        floored = np.maximum(weights, floor_share)
+        # Only re-normalise if the floor actually lifted someone -- otherwise
+        # leave the proportional weights untouched (avoids introducing
+        # floating-point noise when the floor doesn't bind).
+        if not np.array_equal(floored.values, weights.values):
+            weights = floored / floored.sum()
+
+    return weights
 
 
 def compute_player_stats(

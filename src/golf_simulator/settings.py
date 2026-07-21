@@ -42,9 +42,12 @@ class DynamicWeightConfig:
         Bottom finishing percentile that earns a negative nudge.
         e.g. 0.25 = bottom quarter of finishers get a penalty.
     min_weight : float
-        Hard floor before re-normalisation.
+        Absolute safety floor applied after the baseline-relative bounds,
+        before re-normalisation.
     max_weight_multiplier : float
-        Maximum a player's weight can grow relative to their baseline.
+        Bounds a player's weight symmetrically relative to baseline: it can
+        grow to at most ``baseline * max_weight_multiplier`` and shrink to at
+        most ``baseline / max_weight_multiplier``.
     """
 
     enabled: bool = True

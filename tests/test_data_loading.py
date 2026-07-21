@@ -17,12 +17,32 @@ def test_build_participation_weights_normalizes_to_one():
     assert weights["C"] > weights["A"]
 
 
-def test_build_participation_weights_applies_floor():
-    avg_events = pd.Series({"A": 1.0, "B": 2.0})
-    weights = build_participation_weights(avg_events, weight_floor=100.0)
-    # Both raw weights (1.0, 2.0) are floored to the same value (100.0),
-    # so their normalized shares should end up equal.
-    assert weights["A"] == pytest.approx(weights["B"])
+def test_build_participation_weights_floor_lifts_low_players():
+    # weight_floor is a fraction of the uniform 1/N weight; a strong floor
+    # lifts under-weighted players toward the uniform share, compressing the
+    # gap (without capping the top).
+    avg_events = pd.Series({"A": 1.0, "B": 9.0})
+    no_floor = build_participation_weights(avg_events, weight_floor=0.0)
+    floored = build_participation_weights(avg_events, weight_floor=1.0)
+
+    assert floored["A"] > no_floor["A"]
+    assert (floored["B"] - floored["A"]) < (no_floor["B"] - no_floor["A"])
+
+
+def test_build_participation_weights_no_floor_preserves_proportions():
+    avg_events = pd.Series({"A": 1.0, "B": 3.0})
+    weights = build_participation_weights(avg_events, weight_floor=0.0)
+    # No floor -> weights strictly proportional to participation.
+    assert weights["B"] == pytest.approx(3.0 * weights["A"])
+
+
+def test_build_participation_weights_weak_floor_is_noop():
+    # A small floor (fraction of 1/N) below every player's actual share
+    # should leave the proportional weights unchanged.
+    avg_events = pd.Series({"A": 10.0, "B": 20.0, "C": 30.0})
+    no_floor = build_participation_weights(avg_events, weight_floor=0.0)
+    weak_floor = build_participation_weights(avg_events, weight_floor=0.05)
+    assert (weak_floor.values == pytest.approx(no_floor.values))
 
 
 def test_build_participation_weights_raises_on_nonpositive_sum():
