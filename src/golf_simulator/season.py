@@ -27,6 +27,36 @@ from golf_simulator.weights import nudge_weights
 # ── Season simulation ──────────────────────────────────────────────────────────
 
 
+def validate_field_size(player_params: dict, schedule: list) -> None:
+    """
+    Check that there are enough players to fill every scheduled event's field.
+
+    Parameters
+    ----------
+    player_params : dict
+        pid -> (a, loc, scale, weight)
+    schedule : list[TournamentType]
+
+    Raises
+    ------
+    ValueError
+        If `player_params` has fewer players than the largest `field_size`
+        required by any event in `schedule`. Without this check, the field
+        selection inside `simulate_season` fails with numpy's much less
+        clear "Cannot take a larger sample than population when replace is
+        False".
+    """
+    n_players = len(player_params)
+    max_field_size = max((t.value.field_size for t in schedule), default=0)
+
+    if n_players < max_field_size:
+        raise ValueError(
+            f"Not enough players to simulate this schedule: it has {n_players} "
+            f"player(s), but the largest scheduled event needs a field of "
+            f"{max_field_size}. Add more players or remove that event."
+        )
+
+
 def simulate_season(
     player_params: dict,
     schedule: list,
@@ -61,6 +91,8 @@ def simulate_season(
         One row per event showing each player's weight after updating.
         None when dynamic weights are disabled.
     """
+    validate_field_size(player_params, schedule)
+
     pids = [str(pid) for pid in player_params.keys()]
     baseline_weights = {pid: float(player_params[pid][3]) for pid in pids}
     current_weights = dict(baseline_weights)

@@ -80,6 +80,7 @@ class DataConfig:
     season_dir: str = "data/seasons"
     player_column: str = "player"
     score_column: str = "score"
+    field_file: str | None = None
 
 
 @dataclass

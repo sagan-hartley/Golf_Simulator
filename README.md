@@ -28,8 +28,9 @@ golf-sim
 
 This reads [`config/settings.yaml`](config/settings.yaml) and
 [`config/season_schedule.csv`](config/season_schedule.csv), fits player
-distributions from the CSVs in `data/seasons/`, and writes three result
-files to `outputs/`:
+distributions from the CSVs in `data/seasons/` (or loads a custom field
+directly if `data.field_file` is set — see USER_GUIDE), and writes three
+result files to `outputs/`:
 
 - `season_static.csv` — one simulated season, fixed participation odds
 - `season_dynamic.csv` — one simulated season, with dynamic weight nudging
@@ -44,11 +45,13 @@ Run `golf-sim --help` for CLI options (custom settings/schedule paths).
 config/settings.yaml         user-tunable scalar settings (see USER_GUIDE)
 config/season_schedule.csv   the season calendar (see USER_GUIDE)
 data/seasons/*.csv           historical round-score data, one file per season
+data/custom_fields/          example synthetic/hypothetical field files (see USER_GUIDE)
 src/golf_simulator/
     domain.py                 fixed tournament structure: enums, points tables
     settings.py                settings.yaml loader/validator
     schedule.py                 season_schedule.csv loader/validator
     data_loading.py            historical data -> per-player mean/variance/skew
+    player_field.py            custom field file loader (alternative to historical data)
     distributions.py           skew-normal fitting + score sampling
     points.py                  points-with-ties assignment, cut logic
     weights.py                  dynamic (rank-based) weight nudging

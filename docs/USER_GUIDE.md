@@ -17,9 +17,10 @@ Think of it like a giant, very fast spreadsheet Monte Carlo model. It:
    part) and counts how often each player wins, finishes in the top 10, top
    20, or top 50.
 
-The two things you can change are **how the model behaves** (settings) and
-**what tournaments happen, in what order** (the schedule). You never need to
-open or edit any `.py` file.
+The things you can change are **how the model behaves** (settings), **what
+tournaments happen, in what order** (the schedule), and — optionally —
+**who's in the field** (either real historical players, or a field you make
+up yourself). You never need to open or edit any `.py` file.
 
 ## One-time setup (macOS)
 
@@ -45,7 +46,7 @@ You only need to do this once.
 You'll know it worked if the last line printed something like
 `Successfully installed golf-simulator-0.1.0`.
 
-## The two files you're meant to edit
+## The files you're meant to edit
 
 ### 1. `config/settings.yaml` — how the model behaves
 
@@ -125,6 +126,59 @@ MAJOR_PGA, MAJOR_OPEN, PLAYERS, PLAYOFF
 Save the file as CSV (if Excel asks "Keep current format" or similar when
 saving a `.csv`, choose to keep the CSV format).
 
+### 3. (Optional) Using your own field instead of history
+
+By default the simulator looks at real historical PGA Tour scores to figure
+out how good each player is. But sometimes you want to make up a field
+yourself — for example, to ask "what if a field of 150 players all had
+roughly the same skill level?" instead of using real players.
+
+You do this with a second kind of CSV file, separate from the historical
+data, with **one row per player** and exactly these five columns:
+
+| player_id | mean | variance | skew | weight |
+|---|---|---|---|---|
+| 1 | 69.2 | 3.2 | 0.15 | 1.0 |
+| 2 | 70.4 | 4.5 | 0.20 | 1.0 |
+| ... | ... | ... | ... | ... |
+
+- **`player_id`** — anything that identifies the player: a name, or just a
+  number (as in the example above).
+- **`mean`** — the score you expect this player to average per round (for
+  golf, lower is better — e.g. `69.2` means they average just under par).
+- **`variance`** — how spread out (inconsistent) their scores are. A bigger
+  number means a less predictable player; `0` or a negative number isn't
+  allowed.
+- **`skew`** — whether they lean toward more really-bad rounds (positive
+  skew) or more really-good rounds (negative skew). `0` means symmetric.
+  If you're not sure, `0` is a reasonable default.
+- **`weight`** — how often this player shows up in a simulated field,
+  relative to the others. Equal numbers (e.g. `1.0` for everyone) means
+  everyone is equally likely to be selected. This is the "participation"
+  knob — bump one player's `weight` up if you want them to show up more
+  often than the rest.
+
+An example file with 15 players is included at
+`data/custom_fields/example_field.csv` — open it in Excel to see the format
+firsthand (it's too small to run a full season on its own, though — see the
+error message note below).
+
+To actually use your file, point `config/settings.yaml` at it:
+
+```yaml
+data:
+  field_file: data/custom_fields/example_field.csv
+```
+
+When `field_file` is set, the simulator uses **only** that file and ignores
+the historical `data/seasons/` CSVs entirely. To go back to using real
+historical data, either delete that line or set it back to `null`.
+
+**Important:** your custom field needs at least as many players as the
+biggest tournament in your schedule (156, for a `REGULAR` event). If it
+doesn't, you'll get a clear error telling you how many more players you
+need, rather than the simulation just failing partway through.
+
 ## Running the simulation
 
 Each time you want to run it:
@@ -166,6 +220,8 @@ Open the `outputs/` folder — you can open any of these directly in Excel:
 | `Error: config/settings.yaml: could not parse YAML` | Indentation or a missing colon broke the file | Check that you used spaces (not Tab) and that every setting has a space after its colon |
 | `Error: ... row with event_number=7 has unknown tournament_type 'REGULER'` | A typo in the schedule CSV | Fix the spelling to match one of the valid values listed above |
 | `Error: no CSV files found in data/seasons` | You're running the command from the wrong folder | Run `cd ~/VSCodeProjects/Golf_Simulator` first |
+| `Error: Not enough players to simulate this schedule: it has 15 player(s), but the largest scheduled event needs a field of 156.` | Your custom `field_file` doesn't have enough players for the schedule | Add more rows to your field file, or use a schedule with smaller events |
+| `Error: ... player id '7' has invalid variance=0.0 (must be a positive, finite number)` | A row in your `field_file` has a bad `variance` or `weight` value | Open the file, find that `player_id`, fix the value (must be greater than 0) |
 
 If an error message doesn't match anything above, copy the exact text of
 the error — it's written in plain language and names the specific file and

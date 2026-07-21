@@ -111,12 +111,14 @@ monte_carlo:
 # data
 # -----------------------------------------------------------------------------
 # Where the historical round-score data lives, and which columns to
-# read from it.
+# read from it. See also "field_file" below, which lets you skip
+# historical data entirely and specify your own field of players.
 # -----------------------------------------------------------------------------
 data:
   # Folder containing one CSV per historical season. Every *.csv file
   # in this folder is used automatically — to add a new season, just
   # drop a new file in (named so it sorts correctly, e.g. yr2026.csv).
+  # Ignored if field_file (below) is set.
   season_dir: data/seasons
 
   # Column name in each CSV that identifies the player.
@@ -124,6 +126,15 @@ data:
 
   # Column name in each CSV that holds the round score.
   score_column: score
+
+  # OPTIONAL. Path to a custom field file (see docs/USER_GUIDE.md,
+  # "Using your own field instead of history") with columns
+  # player_id, mean, variance, skew, weight -- one row per player,
+  # describing a hypothetical or synthetic field instead of imputing
+  # one from historical data. When set, season_dir/player_column/
+  # score_column above are ignored entirely. Leave as "null" (or
+  # remove the line) to use historical data as normal.
+  field_file: null
 
 # -----------------------------------------------------------------------------
 # output

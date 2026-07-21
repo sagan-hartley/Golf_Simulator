@@ -98,15 +98,25 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
     -------
     dict
         player_id -> (a, loc, scale, weight)
+
+    Notes
+    -----
+    Iterates with `itertuples` rather than `iterrows`: `iterrows` builds a
+    single per-row `Series`, which silently upcasts every value in that row
+    to a common dtype -- a numeric `id_col` sharing a row with float score
+    columns would otherwise come out as e.g. `0.0` instead of `0`. Player
+    ids are stringified on the way into the dict so every downstream
+    consumer (which joins/looks up players by string id) sees a consistent
+    type regardless of whether ids originated as names or numbers.
     """
     params = {}
-    for _, row in player_stats_df.iterrows():
-        pid = row[id_col]
-        m = float(row[mean_col])
-        v = float(row[var_col])
-        s = float(row[skew_col])
+    for row in player_stats_df.itertuples(index=False):
+        pid = str(getattr(row, id_col))
+        m = float(getattr(row, mean_col))
+        v = float(getattr(row, var_col))
+        s = float(getattr(row, skew_col))
         a, loc, scale = skewnorm_params_from_moments(m, v, s)
-        w = float(row[weight_col])
+        w = float(getattr(row, weight_col))
         params[pid] = (a, loc, scale, w)
     return params
 
