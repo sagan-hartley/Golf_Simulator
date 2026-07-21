@@ -1,0 +1,148 @@
+# =============================================================================
+# Golf Simulator — settings.yaml
+# =============================================================================
+# This is the ONE file you edit to change how the simulation behaves.
+# Everything below is a "key: value" pair, one setting per line.
+#
+# Rules for editing this file safely:
+#   - Keep the same indentation (the spaces at the start of each line).
+#     Use SPACES, never Tab. Each indented line should line up exactly
+#     with its neighbors.
+#   - Always put a space after the colon, e.g. "nudge_amount: 0.08"
+#     (not "nudge_amount:0.08").
+#   - Anything after a "#" is just a comment/explanation — it is ignored
+#     by the program and safe to leave alone or edit.
+#   - If you're unsure, change ONE value at a time, save, run the
+#     simulation (see docs/USER_GUIDE.md), and check the results before
+#     changing anything else.
+#
+# To change the season calendar (which tournaments happen, and in what
+# order), edit config/season_schedule.csv instead — it opens directly
+# in Excel.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# dynamic_weights
+# -----------------------------------------------------------------------------
+# Controls whether a player's chance of being selected into a tournament
+# field changes across the season based on how they've been finishing
+# ("hot streaks" get a small boost, "cold streaks" get a small penalty).
+# -----------------------------------------------------------------------------
+dynamic_weights:
+  # Master on/off switch. Set to false to make every player's odds of
+  # being selected stay fixed all season (the simplest model).
+  enabled: true
+
+  # How big each nudge is, as a fraction. 0.05 = a 5% increase/decrease
+  # to a player's weight after a tournament. Must be between 0 and 1.
+  # Bigger number = the model reacts more strongly to recent form.
+  nudge_amount: 0.05
+
+  # The best-finishing fraction of the field that earns a positive
+  # nudge. 0.25 = the top 25% of finishers get a boost. Must be
+  # between 0 and 1.
+  top_pct: 0.25
+
+  # The worst-finishing fraction of the field (including anyone who
+  # missed the cut) that earns a negative nudge. 0.25 = the bottom 25%.
+  # Must be between 0 and 1.
+  bot_pct: 0.25
+
+  # The smallest a player's weight can ever shrink to, before the
+  # weights are re-balanced to add up to 100%. Should be a very small
+  # positive number — this just prevents a player's odds from hitting
+  # exactly zero.
+  min_weight: 0.001
+
+  # A player's weight can never grow to more than this many times
+  # their starting (baseline) weight, no matter how many nudges they
+  # earn. 2.0 = at most double their starting odds. Must be at least 1.0.
+  max_weight_multiplier: 2.0
+
+# -----------------------------------------------------------------------------
+# participation_weights
+# -----------------------------------------------------------------------------
+# Controls how a player's historical event count is turned into their
+# starting (baseline) odds of being selected into a tournament field.
+# -----------------------------------------------------------------------------
+participation_weights:
+  # A player must have averaged at least this many rounds played per
+  # season in the historical data to be included in the simulation at
+  # all. Raise this to exclude part-time/occasional players.
+  min_avg_rounds: 20
+
+  # How strongly a player's historical event count affects their
+  # starting odds. 1.0 = proportional to events played. Higher values
+  # make frequent players even more likely to be selected; lower
+  # values flatten the differences between players.
+  weight_power: 1.0
+
+  # The smallest starting weight any eligible player can have, applied
+  # before their odds are normalized to add up to 100%. Must be
+  # between 0 and 1. This keeps low-participation players from having
+  # a near-zero chance of ever being selected.
+  weight_floor: 0.05
+
+# -----------------------------------------------------------------------------
+# monte_carlo
+# -----------------------------------------------------------------------------
+# Controls how many full seasons are simulated, and the random seeds
+# used so results are reproducible.
+# -----------------------------------------------------------------------------
+monte_carlo:
+  # How many independent seasons to simulate when estimating each
+  # player's win/top-10/top-20/top-50 probabilities. Must be at least
+  # 1. Higher numbers give more stable probability estimates but take
+  # longer to run.
+  n_simulations: 10
+
+  # The starting random seed for the Monte Carlo simulations above.
+  # Simulation 1 uses this seed, simulation 2 uses this seed + 1, and
+  # so on. Changing this produces a different (but equally valid) set
+  # of simulated seasons.
+  base_seed: 0
+
+  # The random seed used for the single "static" and "dynamic" season
+  # results (outputs/season_static.csv and outputs/season_dynamic.csv).
+  # Changing this produces a different single simulated season.
+  season_seed: 123
+
+# -----------------------------------------------------------------------------
+# data
+# -----------------------------------------------------------------------------
+# Where the historical round-score data lives, and which columns to
+# read from it.
+# -----------------------------------------------------------------------------
+data:
+  # Folder containing one CSV per historical season. Every *.csv file
+  # in this folder is used automatically — to add a new season, just
+  # drop a new file in (named so it sorts correctly, e.g. yr2026.csv).
+  season_dir: data/seasons
+
+  # Column name in each CSV that identifies the player.
+  player_column: player
+
+  # Column name in each CSV that holds the round score.
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# output
+# -----------------------------------------------------------------------------
+# Where results are written after running the simulation.
+# -----------------------------------------------------------------------------
+output:
+  # Folder where result CSVs are written (created automatically if it
+  # doesn't exist yet).
+  output_dir: outputs
+
+  # Filename for the single season simulated WITHOUT dynamic weights
+  # (everyone's odds stay fixed all season).
+  season_static_filename: season_static.csv
+
+  # Filename for the single season simulated WITH dynamic weights
+  # (using the dynamic_weights settings above).
+  season_dynamic_filename: season_dynamic.csv
+
+  # Filename for the Monte Carlo summary (win/top-10/top-20/top-50
+  # probabilities across all simulated seasons).
+  mc_results_filename: mc_results.csv

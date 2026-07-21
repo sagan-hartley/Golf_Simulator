@@ -1,8 +1,10 @@
-"""
-config.py
----------
-All simulation inputs: constants, enums, dataclasses, points tables,
-tournament definitions, and the season schedule.
+"""domain.py.
+
+Fixed tournament structure: constants, enums, dataclasses, and points
+tables. These represent official PGA Tour rules/numbers and are not
+meant to be edited by end users; user-tunable inputs live in
+``config/settings.yaml`` and ``config/season_schedule.csv`` instead
+(see :mod:`golf_simulator.settings` and :mod:`golf_simulator.schedule`).
 """
 
 from dataclasses import dataclass
@@ -31,42 +33,12 @@ CUT_PLUS_SHOTS = 10.0
 PLAYER_ID_COL = "player_id"
 TOTAL_2R_COL = "total_2r"
 
-# ── Dynamic weight configuration ───────────────────────────────────────────────
-
-@dataclass
-class DynamicWeightConfig:
-    """
-    Controls rank-based weight nudging after each event.
-
-    Attributes
-    ----------
-    enabled : bool
-        Master switch. False reproduces original static behaviour.
-    nudge_amount : float
-        How much to adjust weight after each event (e.g. 0.05 = 5%).
-        Applied as a multiplier: weight *= (1 + nudge) or (1 - nudge).
-    top_pct : float
-        Top finishing percentile that earns a positive nudge.
-        e.g. 0.25 = top quarter of finishers get a boost.
-    bot_pct : float
-        Bottom finishing percentile that earns a negative nudge.
-        e.g. 0.25 = bottom quarter of finishers get a penalty.
-    min_weight : float
-        Hard floor before re-normalisation.
-    max_weight_multiplier : float
-        Maximum a player's weight can grow relative to their baseline.
-    """
-    enabled: bool = True
-    nudge_amount: float = 0.05
-    top_pct: float = 0.25
-    bot_pct: float = 0.25
-    min_weight: float = 0.001
-    max_weight_multiplier: float = 2.0
-
-
 # ── Enums ──────────────────────────────────────────────────────────────────────
 
+
 class EventType(Enum):
+    """Points-table category a tournament belongs to."""
+
     REGULAR = "regular"
     SIGNATURE = "signature"
     MAJOR_PLAYERS = "major_players"
@@ -76,6 +48,8 @@ class EventType(Enum):
 
 
 class CutRule(Enum):
+    """36-hole cut rule variants."""
+
     NONE = "none"
     TOP_70_TIES = "top70_ties"
     TOP_65_TIES = "top65_ties"
@@ -86,12 +60,16 @@ class CutRule(Enum):
 
 @dataclass()
 class TournamentConfig:
+    """Structural rules for one tournament type: points table, cut rule, field size."""
+
     points_type: EventType
     cut_rule: CutRule
     field_size: int
 
 
 class TournamentType(Enum):
+    """Every tournament type that can appear in a season schedule."""
+
     REGULAR = TournamentConfig(
         points_type=EventType.REGULAR,
         cut_rule=CutRule.TOP_65_TIES,
@@ -198,40 +176,3 @@ POINTS_TABLES = {
     EventType.ADDITIONAL: POINTS_TABLE_ADDITIONAL_300,
     EventType.PLAYOFFS_2026_APPROX_750: POINTS_TABLE_MAJOR_PLAYERS_750,
 }
-
-# ── Season schedule ────────────────────────────────────────────────────────────
-
-SEASON_SCHEDULE = [
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.SIGNATURE_NO_CUT,
-    TournamentType.SIGNATURE_CUT,
-    TournamentType.REGULAR,
-    TournamentType.SIGNATURE_CUT,
-    TournamentType.PLAYERS,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.MAJOR_MASTERS,
-    TournamentType.SIGNATURE_NO_CUT,
-    TournamentType.SIGNATURE_NO_CUT,
-    TournamentType.SIGNATURE_NO_CUT,
-    TournamentType.MAJOR_PGA,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.SIGNATURE_CUT,
-    TournamentType.REGULAR,
-    TournamentType.MAJOR_US_OPEN,
-    TournamentType.SIGNATURE_NO_CUT,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.MAJOR_OPEN,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.REGULAR,
-    TournamentType.PLAYOFF,
-    TournamentType.PLAYOFF,
-    TournamentType.PLAYOFF,
-]
