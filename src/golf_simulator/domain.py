@@ -60,11 +60,20 @@ class CutRule(Enum):
 
 @dataclass()
 class TournamentConfig:
-    """Structural rules for one tournament type: points table, cut rule, field size."""
+    """Structural rules for one tournament type: points table, cut rule, field size.
+
+    ``label`` is a human-readable name that also keeps every member's value
+    distinct: without it, two tournaments whose rules happen to coincide
+    (e.g. The Open and the PGA Championship both use a top-70-and-ties cut,
+    a 156-player field, and the major points table) would be equal, and
+    ``Enum`` would silently collapse the second into an *alias* of the first
+    -- so a ``MAJOR_OPEN`` event would report itself as ``MAJOR_PGA``.
+    """
 
     points_type: EventType
     cut_rule: CutRule
     field_size: int
+    label: str
 
 
 class TournamentType(Enum):
@@ -74,51 +83,61 @@ class TournamentType(Enum):
         points_type=EventType.REGULAR,
         cut_rule=CutRule.TOP_65_TIES,
         field_size=156,
+        label="Regular Event",
     )
     SIGNATURE_NO_CUT = TournamentConfig(
         points_type=EventType.SIGNATURE,
         cut_rule=CutRule.NONE,
         field_size=70,
+        label="Signature Event (no cut)",
     )
     SIGNATURE_CUT = TournamentConfig(
         points_type=EventType.SIGNATURE,
         cut_rule=CutRule.TOP_50_PLUS_10_SHOTS,
         field_size=70,
+        label="Signature Event (cut)",
     )
     MAJOR_MASTERS = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_50_TIES,
         field_size=156,
+        label="Masters Tournament",
     )
     MAJOR_US_OPEN = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_60_TIES,
         field_size=156,
+        label="U.S. Open",
     )
     MAJOR_PGA = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_70_TIES,
         field_size=156,
+        label="PGA Championship",
     )
     MAJOR_OPEN = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_70_TIES,
         field_size=156,
+        label="The Open Championship",
     )
     PLAYERS = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.TOP_65_TIES,
         field_size=156,
+        label="The Players Championship",
     )
     PLAYOFF = TournamentConfig(
         points_type=EventType.MAJOR_PLAYERS,
         cut_rule=CutRule.NONE,
         field_size=70,
+        label="FedExCup Playoff Event",
     )
     ALIGNMENT_REGULAR = TournamentConfig(
         points_type=EventType.REGULAR,
         cut_rule=CutRule.TOP_65_TIES,
         field_size=120,
+        label="Alignment Regular Event",
     )
 
 
