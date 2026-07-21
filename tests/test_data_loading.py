@@ -76,3 +76,22 @@ def test_compute_player_stats_filters_by_min_avg_rounds(tmp_path):
     assert "Frequent" in stats["Player"].tolist()
     assert "Occasional" not in stats["Player"].tolist()
     assert stats["Weight"].sum() == pytest.approx(1.0)
+
+
+def test_compute_player_stats_avg_rounds_is_per_active_season(tmp_path):
+    # A player who appears in only one of two season files should be judged on
+    # the rounds they actually played, not diluted by the season they missed.
+    s1 = tmp_path / "s1.csv"
+    s2 = tmp_path / "s2.csv"
+    s1.write_text("player,score\n" + "\n".join(f"X,{70 + i % 5}" for i in range(25)) + "\n")
+    s2.write_text("player,score\n" + "\n".join(f"Y,{70 + i % 5}" for i in range(25)) + "\n")
+
+    stats = compute_player_stats(
+        [str(s1), str(s2)], player_col="player", value_col="score", min_avg_rounds=20
+    )
+
+    # X played 25 rounds in its one active season -> AvgRounds 25 >= 20, kept.
+    # Under the old total/num_seasons rule that would be 25/2 = 12.5 < 20,
+    # wrongly dropping X.
+    assert "X" in stats["Player"].tolist()
+    assert stats.set_index("Player").loc["X", "AvgRounds"] == pytest.approx(25.0)

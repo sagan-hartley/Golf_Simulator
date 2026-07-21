@@ -124,11 +124,17 @@ def compute_player_stats(
         Columns: Player, AvgRounds, AvgEvents, Mean, Variance, Skew, Weight
     """
     all_data = load_and_standardize_round_data(csv_paths, player_col, value_col)
-    num_seasons = len(csv_paths)
 
     grouped = all_data.groupby(player_col)[value_col]
     total_rounds = grouped.size()
-    avg_rounds = total_rounds / float(num_seasons)
+
+    # Rounds and events are averaged over the seasons a player *actually
+    # played*, not over every season file: a player who appears in only 2 of
+    # 5 seasons is judged on those 2 seasons, not diluted by the 3 they
+    # missed. (This also keeps AvgRounds consistent with AvgEvents, which is
+    # already a per-active-season mean.)
+    seasons_played = all_data.groupby(player_col)["_season"].nunique()
+    avg_rounds = total_rounds / seasons_played
 
     events_per_season = (
         all_data

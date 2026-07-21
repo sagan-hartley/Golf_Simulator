@@ -70,8 +70,9 @@ dynamic_weights:
 # -----------------------------------------------------------------------------
 participation_weights:
   # A player must have averaged at least this many rounds played per
-  # season in the historical data to be included in the simulation at
-  # all. Raise this to exclude part-time/occasional players.
+  # season they actually appeared in (seasons they sat out don't count
+  # against them) to be included in the simulation. Raise this to exclude
+  # part-time/occasional players.
   min_avg_rounds: 20
 
   # How strongly a player's historical event count affects their
