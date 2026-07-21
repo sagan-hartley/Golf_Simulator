@@ -16,6 +16,10 @@ chase analysis (see golf_simulator.monday_chase).
 ``golf-sim card-retention`` -- loads config/card_retention.yaml, builds
 a card pool and an outside-qualifiers pool, and simulates the card
 retention analysis (see golf_simulator.card_retention).
+
+``golf-sim qschool`` -- loads config/qschool.yaml, builds an aspirant
+pool and a competition pool, and simulates the Q-School qualifying
+gauntlet (see golf_simulator.qschool).
 """
 
 import argparse
@@ -36,6 +40,12 @@ from golf_simulator.monday_chase_settings import (
 )
 from golf_simulator.monte_carlo import run_n_simulations
 from golf_simulator.player_field import FieldError, load_player_pool
+from golf_simulator.qschool import run_qschool
+from golf_simulator.qschool_settings import (
+    DEFAULT_QSCHOOL_SETTINGS_PATH,
+    QSchoolSettingsError,
+    load_qschool_settings,
+)
 from golf_simulator.schedule import DEFAULT_SCHEDULE_PATH, ScheduleError, load_season_schedule
 from golf_simulator.season import simulate_season
 from golf_simulator.settings import (
@@ -45,7 +55,7 @@ from golf_simulator.settings import (
     load_settings,
 )
 
-_SUBCOMMANDS = ("season", "monday-chase", "card-retention")
+_SUBCOMMANDS = ("season", "monday-chase", "card-retention", "qschool")
 
 
 def parse_args(argv=None):
@@ -96,6 +106,15 @@ def parse_args(argv=None):
         "--settings",
         default=DEFAULT_CARD_RETENTION_SETTINGS_PATH,
         help=f"Path to card_retention.yaml (default: {DEFAULT_CARD_RETENTION_SETTINGS_PATH})",
+    )
+
+    qschool_parser = subparsers.add_parser(
+        "qschool", help="Simulate the Q-School qualifying gauntlet"
+    )
+    qschool_parser.add_argument(
+        "--settings",
+        default=DEFAULT_QSCHOOL_SETTINGS_PATH,
+        help=f"Path to qschool.yaml (default: {DEFAULT_QSCHOOL_SETTINGS_PATH})",
     )
 
     return parser.parse_args(argv)
@@ -213,6 +232,36 @@ def _run_card_retention(args) -> int:
     return 0
 
 
+def _run_qschool(args) -> int:
+    """Run the Q-School gauntlet analysis and write results to disk."""
+    try:
+        settings = load_qschool_settings(args.settings)
+        default_participation = ParticipationWeightConfig()
+        aspirant_params = load_player_pool(settings.aspirant_pool, default_participation)
+        competition_params = load_player_pool(settings.competition_pool, default_participation)
+    except (QSchoolSettingsError, FieldError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    out_dir = Path(settings.output.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        results = run_qschool(
+            aspirant_params,
+            competition_params,
+            settings.qschool,
+            output_csv_path=out_dir / settings.output.filename,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(results.to_string(index=False))
+    print(f"\nDone. Results written to {out_dir}/")
+    return 0
+
+
 def main(argv=None) -> int:
     """Dispatch to the requested subcommand (default: `season`)."""
     args = parse_args(argv)
@@ -220,6 +269,8 @@ def main(argv=None) -> int:
         return _run_monday_chase(args)
     if args.command == "card-retention":
         return _run_card_retention(args)
+    if args.command == "qschool":
+        return _run_qschool(args)
     return _run_season(args)
 
 

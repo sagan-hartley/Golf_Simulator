@@ -1,0 +1,100 @@
+# =============================================================================
+# Golf Simulator — qschool.yaml
+# =============================================================================
+# Settings for the "Q-School" analysis: for a player of a given caliber, how
+# likely are they to earn playing status through the 4-stage qualifying
+# gauntlet -- and how much does their entry point (stage 1, 2, or 3) matter?
+#
+# How the gauntlet works:
+#   - Stages 1, 2, 3 are each a 4-round tournament; the top 20% advance.
+#   - The final (stage 4) awards status by finish: top 5 -> PGA Tour card,
+#     rest of the top 25% -> full Korn Ferry card, next 25% -> conditional
+#     status, everyone else -> nothing.
+#   - Each successive stage's field is stronger (see strength_step below).
+#
+# Run with: golf-sim qschool
+#
+# Same editing rules as config/settings.yaml: use spaces (not Tab) for
+# indentation, and always put a space after the colon.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# aspirant_pool
+# -----------------------------------------------------------------------------
+# The players whose odds you want to compute. Keep this SMALL -- a handful of
+# representative skill levels (e.g. a top college prospect vs. a journeyman),
+# not a full 130-player pool. Each aspirant is evaluated on their own,
+# starting at stage 1, 2, and 3, so you can read straight off the results how
+# caliber and entry point change the odds. See docs/USER_GUIDE.md ("Q-School")
+# for a worked example.
+# -----------------------------------------------------------------------------
+aspirant_pool:
+  # OPTIONAL. Path to a custom field file (player_id,mean,variance,skew,weight
+  # -- see docs/USER_GUIDE.md). Leave null to use historical data instead.
+  field_file: null
+
+  # Only used when field_file is null.
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# competition_pool
+# -----------------------------------------------------------------------------
+# The pool the aspirant's opponents are drawn from. This represents the
+# STAGE-1 field strength; later stages are made progressively tougher by
+# strength_step below. Must NOT share any player ids with aspirant_pool, and
+# must hold at least (stage_field_size - 1) players.
+# -----------------------------------------------------------------------------
+competition_pool:
+  field_file: null
+
+  season_dir: data/seasons
+  player_column: player
+  score_column: score
+
+# -----------------------------------------------------------------------------
+# qschool
+# -----------------------------------------------------------------------------
+qschool:
+  # Fraction of each stage's field that advances to the next stage (with ties
+  # at the cutoff all advancing). 0.20 = top 20%. Must be >0 and <=1.
+  advance_pct: 0.20
+
+  # How many strokes STRONGER each stage's field is than the one before it.
+  # 0.5 means the stage-2 field averages half a stroke better than stage 1,
+  # stage 3 a full stroke better, and the final 1.5 strokes better. This is
+  # the "each round has progressively better players" dial -- raise it to make
+  # climbing from an early stage harder. 0 = every stage equally tough.
+  strength_step: 0.5
+
+  # Rounds played per stage (a Q-School stage is a 4-day, 4-round event).
+  rounds_per_stage: 4
+
+  # Number of players in each stage's field (the aspirant plus this many
+  # opponents minus one). The final stage's status thresholds are computed
+  # from this size.
+  stage_field_size: 78
+
+  # Final-stage status tiers (by finishing position):
+  #   top 5 (pga_card_spots)        -> PGA Tour card
+  #   rest of top 25% (full_kf_pct) -> full Korn Ferry card
+  #   next 25% (conditional_pct)    -> conditional status
+  #   everyone else                 -> no status
+  pga_card_spots: 5
+  full_kf_pct: 0.25
+  conditional_pct: 0.25
+
+  # How many independent gauntlet runs to simulate per (aspirant, start-stage)
+  # when estimating probabilities. Higher = more stable, slower.
+  n_simulations: 500
+
+  # Starting random seed; run i uses base_seed + i.
+  base_seed: 0
+
+# -----------------------------------------------------------------------------
+# output
+# -----------------------------------------------------------------------------
+output:
+  output_dir: outputs
+  filename: qschool_results.csv

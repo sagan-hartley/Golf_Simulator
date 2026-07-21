@@ -169,6 +169,7 @@ def test_no_subcommand_defaults_to_season():
     assert parse_args(["season"]).command == "season"
     assert parse_args(["monday-chase"]).command == "monday-chase"
     assert parse_args(["card-retention"]).command == "card-retention"
+    assert parse_args(["qschool"]).command == "qschool"
 
 
 def test_bare_help_shows_top_level_subcommand_list(capsys):
@@ -179,6 +180,7 @@ def test_bare_help_shows_top_level_subcommand_list(capsys):
     captured = capsys.readouterr()
     assert "monday-chase" in captured.out
     assert "card-retention" in captured.out
+    assert "qschool" in captured.out
     assert "season" in captured.out
 
 
@@ -234,3 +236,59 @@ def test_card_retention_runs_end_to_end(tmp_path, monkeypatch):
     assert len(results) == 130
     assert "Retained_Card_pct" in results.columns
     assert "Avg_SeasonRank" in results.columns
+
+
+def _write_qschool_field_csv(path, n_players, mean_base=70.0, seed=0):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_players):
+        rows.append({
+            "player_id": f"{path.stem}_{i}",
+            "mean": float(mean_base + rng.uniform(0, 2)),
+            "variance": float(rng.uniform(4, 6)),
+            "skew": 0.0,
+            "weight": 1.0,
+        })
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def _write_qschool_settings_yaml(path, aspirant_file, competition_file, output_dir):
+    path.write_text(
+        f"""
+        aspirant_pool:
+          field_file: {aspirant_file}
+        competition_pool:
+          field_file: {competition_file}
+        qschool:
+          stage_field_size: 40
+          n_simulations: 20
+        output:
+          output_dir: {output_dir}
+          filename: qschool.csv
+        """
+    )
+
+
+def test_qschool_runs_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    aspirant_path = tmp_path / "aspirants.csv"
+    _write_qschool_field_csv(aspirant_path, 4, mean_base=69.0)
+
+    competition_path = tmp_path / "competition.csv"
+    _write_qschool_field_csv(competition_path, 60, mean_base=70.5, seed=1)
+
+    settings_path = tmp_path / "qschool.yaml"
+    out_dir = tmp_path / "outputs"
+    _write_qschool_settings_yaml(settings_path, aspirant_path, competition_path, out_dir)
+
+    exit_code = main(["qschool", "--settings", str(settings_path)])
+
+    assert exit_code == 0
+    out_file = out_dir / "qschool.csv"
+    assert out_file.exists()
+
+    results = pd.read_csv(out_file)
+    assert len(results) == 4 * 3  # 4 aspirants x 3 start stages
+    assert "Any_Status_pct" in results.columns
+    assert "PGA_Card_pct" in results.columns

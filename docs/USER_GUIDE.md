@@ -22,10 +22,11 @@ tournaments happen, in what order** (the schedule), and — optionally —
 **who's in the field** (either real historical players, or a field you make
 up yourself). You never need to open or edit any `.py` file.
 
-There are three separate analyses you can run: the full-season simulation
+There are four separate analyses you can run: the full-season simulation
 (`golf-sim season`, the default — described first below), "Chasing Mondays"
-(`golf-sim monday-chase`), and "Card Retention" (`golf-sim card-retention`)
-— jump to whichever section answers your question.
+(`golf-sim monday-chase`), "Card Retention" (`golf-sim card-retention`), and
+"Q-School" (`golf-sim qschool`) — jump to whichever section answers your
+question.
 
 ## One-time setup (macOS)
 
@@ -360,6 +361,75 @@ Try `retention.cutoff: 90` (as originally framed) versus something like
 `104` (closer to a ~20% turnover target for a 130-player pool) to see how
 sensitive the answer is to exactly where the cutoff line falls.
 
+## Q-School
+
+A fourth analysis: how likely is a player to earn playing status through
+Q-School — the multi-stage qualifying gauntlet — and how much does their
+entry point matter?
+
+**How the gauntlet works.** There are four stages. Stages 1, 2, and 3 are
+each a four-round tournament where only the **top 20%** advance to the next
+stage. The final (stage 4) hands out status by finish: the top 5 earn a PGA
+Tour card, the rest of the top 25% a full Korn Ferry card, the next 25%
+conditional status, and everyone else nothing. A strong résumé (say, a
+standout college career) can let a player **skip straight into stage 2 or
+3** — so the tool always reports what happens starting from stage 1, 2, and
+3, side by side.
+
+### Setting it up
+
+This needs two populations, set up the same way as the custom field file
+described earlier:
+
+1. **`aspirant_pool`** — the players whose odds you want. **Keep this
+   small** — a handful of skill levels (e.g. a top prospect at 68.5, a
+   journeyman at 71) rather than a big pool. Each is run on its own so you
+   can read the odds straight off.
+2. **`competition_pool`** — the field they play against. This sets the
+   **stage-1** difficulty; later stages are made tougher automatically (see
+   `strength_step`). Needs no minimum skill, but must have at least
+   `stage_field_size − 1` players and share no ids with the aspirants.
+
+The key knob is **`strength_step`** — how many strokes better each stage's
+field is than the one before. `0.5` means stage 2 averages half a stroke
+better than stage 1, stage 3 a full stroke, the final 1.5. Turn it up to
+make climbing from an early stage harder.
+
+```yaml
+aspirant_pool:
+  field_file: data/custom_fields/my_prospects.csv
+
+competition_pool:
+  field_file: null   # null = historical Tour data as the stage-1 field
+
+qschool:
+  advance_pct: 0.20      # top 20% advance each stage
+  strength_step: 0.5     # each stage's field is 0.5 strokes stronger
+  n_simulations: 500
+```
+
+### Running it
+
+```
+cd ~/VSCodeProjects/Golf_Simulator
+source .venv/bin/activate
+golf-sim qschool
+```
+
+Results land in `outputs/qschool_results.csv`, one row per aspirant **and
+start stage**:
+
+- **`PGA_Card_pct`** — chance of finishing top-5 in the final (a PGA card).
+- **`Full_KF_pct`** — chance of landing in the full-Korn-Ferry-card tier.
+- **`Conditional_pct`** — chance of landing in the conditional-status tier.
+- **`Any_Status_pct`** — chance of earning *any* status (the sum of the
+  three above). This is the headline number.
+
+Compare the three `Start_Stage` rows for a player to see how much a better
+entry point is worth. The effect is usually largest for *marginal* players:
+each 20% gate is a brutal filter, so skipping one or two of them matters far
+more to a bubble player than to an elite who'd clear them anyway.
+
 ## Troubleshooting
 
 | What you see | What it means | What to do |
@@ -375,6 +445,8 @@ sensitive the answer is to exactly where the cutoff line falls.
 | `Error: Week 3: ... aspirants ... exceed the main event's field size of 156` | Your `chase` settings let too many aspirants into one week's field | Lower `advance_pct`, tighten `parlay_top_n`, or shrink `aspirant_pool` |
 | `Error: card_pool and outside_pool share player id(s): ...` | Both card-retention pools point at the same data, or use overlapping ids | Point `card_pool`/`outside_pool` at distinct custom `field_file`s |
 | `Error: Not enough players to fill the largest major's field: card_pool + outside_pool together have 135 player(s), but the largest major needs a field of 156.` | Your two card-retention pools combined are too small for a major | Add more players to `card_pool` or `outside_pool` |
+| `Error: aspirant_pool and competition_pool share player id(s): ...` | Both Q-School pools point at the same data | Point at least one at a distinct custom `field_file` |
+| `Error: Not enough competition players to fill a stage field: ...` | Your Q-School `competition_pool` is smaller than a stage field | Add more players, or lower `qschool.stage_field_size` |
 
 If an error message doesn't match anything above, copy the exact text of
 the error — it's written in plain language and names the specific file and

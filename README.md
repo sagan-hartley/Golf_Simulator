@@ -22,12 +22,13 @@ pip install -e ".[dev]"
 
 ## Quick start
 
-`golf-sim` has three subcommands (`golf-sim` alone defaults to `season`):
+`golf-sim` has four subcommands (`golf-sim` alone defaults to `season`):
 
 ```bash
 golf-sim season          # or just `golf-sim`
 golf-sim monday-chase
 golf-sim card-retention
+golf-sim qschool
 ```
 
 `season` reads [`config/settings.yaml`](config/settings.yaml) and
@@ -50,6 +51,10 @@ and simulates the "chasing Mondays" analysis (see USER_GUIDE), writing
 "card retention" analysis under a proposed new PGA Tour alignment (see
 USER_GUIDE), writing `outputs/card_retention_results.csv`.
 
+`qschool` reads [`config/qschool.yaml`](config/qschool.yaml) and simulates
+the Q-School qualifying gauntlet — a player's odds of earning status by
+entry stage (see USER_GUIDE), writing `outputs/qschool_results.csv`.
+
 Run `golf-sim --help` or `golf-sim <subcommand> --help` for CLI options.
 
 ## Architecture
@@ -60,6 +65,7 @@ config/season_schedule.csv   the season calendar (see USER_GUIDE)
 config/monday_chase.yaml     Monday-qualifier chase analysis settings (see USER_GUIDE)
 config/card_retention.yaml   card retention analysis settings (see USER_GUIDE)
 config/alignment_schedule.csv  season calendar for the card retention analysis
+config/qschool.yaml          Q-School gauntlet analysis settings (see USER_GUIDE)
 data/seasons/*.csv           historical round-score data, one file per season
 data/custom_fields/          example synthetic/hypothetical field files (see USER_GUIDE)
 src/golf_simulator/
@@ -67,6 +73,7 @@ src/golf_simulator/
     settings.py                settings.yaml loader/validator
     monday_chase_settings.py    monday_chase.yaml loader/validator
     card_retention_settings.py  card_retention.yaml loader/validator
+    qschool_settings.py         qschool.yaml loader/validator
     schedule.py                 season_schedule.csv loader/validator (any TournamentType)
     data_loading.py            historical data -> per-player mean/variance/skew
     player_field.py            custom field loader + pool-loading dispatch
@@ -77,8 +84,9 @@ src/golf_simulator/
     monte_carlo.py              run_n_simulations: many seasons, aggregated
     monday_chase.py             Monday-qualifier chase simulation + aggregation
     card_retention.py           card retention (two-pool) simulation + aggregation
+    qschool.py                  Q-School gauntlet simulation + aggregation
     diagnostics.py              plotting/comparison helpers (interactive use)
-    cli.py                      `golf-sim` entry point (season / monday-chase / card-retention)
+    cli.py                      `golf-sim` entry point (season / monday-chase / card-retention / qschool)
 tests/                        pytest suite, one file per module above
 ```
 
