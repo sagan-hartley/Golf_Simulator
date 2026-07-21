@@ -1,8 +1,8 @@
 """End-to-end smoke test: synthetic data through the full pipeline.
 
-Asserts the pipeline produces a sane season summary and that running
-it twice with the same seed produces identical output -- the
-automated proxy for "the simulation is deterministic given its inputs."
+Asserts the pipeline produces a sane season summary and that the
+simulation is fully deterministic given its seed: the same seed
+reproduces identical output, and different seeds diverge.
 """
 
 import numpy as np
@@ -53,23 +53,25 @@ def test_season_summary_has_valid_ranks_and_no_nans(player_params):
 
 
 def test_same_seed_produces_identical_output(player_params):
-    # NOTE: `seed=` only controls which players are drawn into each event's
-    # field (via a local numpy Generator). Round scores themselves are drawn
-    # with scipy's `skewnorm.rvs(...)`, which -- in the existing, unmodified
-    # algorithm -- does not take an explicit `random_state` and so pulls from
-    # numpy's *global* legacy random state instead. Full reproducibility
-    # therefore requires resetting that global state too, exactly as a
-    # caller running the pipeline twice in separate processes would need to.
+    # `seed=` fully determines both field selection and round-score sampling,
+    # so two runs with the same seed must produce byte-identical output.
     schedule = [TournamentType.REGULAR, TournamentType.SIGNATURE_CUT]
     dw_cfg = DynamicWeightConfig(enabled=True)
 
-    np.random.seed(2024)
     summary_1, _, _ = simulate_season(
         player_params, schedule, seed=42, dynamic_weight_config=dw_cfg
     )
-    np.random.seed(2024)
     summary_2, _, _ = simulate_season(
         player_params, schedule, seed=42, dynamic_weight_config=dw_cfg
     )
 
     pd.testing.assert_frame_equal(summary_1, summary_2)
+
+
+def test_different_seeds_produce_different_output(player_params):
+    schedule = [TournamentType.REGULAR, TournamentType.SIGNATURE_CUT]
+
+    summary_1, _, _ = simulate_season(player_params, schedule, seed=1)
+    summary_2, _, _ = simulate_season(player_params, schedule, seed=2)
+
+    assert not summary_1["SeasonPoints"].equals(summary_2["SeasonPoints"])

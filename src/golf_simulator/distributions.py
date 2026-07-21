@@ -111,7 +111,7 @@ def build_player_generators(player_stats_df, id_col="Player", mean_col="Mean",
     return params
 
 
-def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
+def sample_round_scores_for_players(player_params, n_rounds, player_ids=None, random_state=None):
     """
     Draw round-by-round integer scores for multiple players.
 
@@ -120,6 +120,11 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
     player_params : dict
     n_rounds : int
     player_ids : list or None
+    random_state : numpy.random.Generator, int, or None
+        Passed through to `scipy.stats.skewnorm.rvs`. Provide the same
+        Generator (or seed) used elsewhere in a simulation run to make
+        that run fully reproducible; None falls back to numpy's global
+        random state.
 
     Returns
     -------
@@ -134,7 +139,7 @@ def sample_round_scores_for_players(player_params, n_rounds, player_ids=None):
 
     for i, pid in enumerate(player_ids):
         a, loc, scale, _ = player_params[pid]
-        raw_scores = skewnorm.rvs(a, loc=loc, scale=scale, size=n_rounds)
+        raw_scores = skewnorm.rvs(a, loc=loc, scale=scale, size=n_rounds, random_state=random_state)
         scores[i, :] = np.rint(raw_scores).astype(int)
 
     return scores

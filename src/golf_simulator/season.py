@@ -98,7 +98,9 @@ def simulate_season(
             p=current_p,
         ).tolist()
 
-        scores_pre = sample_round_scores_for_players(player_params, CUT_AFTER_ROUND, field)
+        scores_pre = sample_round_scores_for_players(
+            player_params, CUT_AFTER_ROUND, field, random_state=rng
+        )
         totals_2r = scores_pre.sum(axis=1)
 
         # Record pre-cut round scores for every player in the field
@@ -114,7 +116,9 @@ def simulate_season(
         survivors = [pid for pid in field if pid in made_cut]
 
         remaining_rounds = ROUNDS_PER_EVENT - CUT_AFTER_ROUND
-        scores_post = sample_round_scores_for_players(player_params, remaining_rounds, survivors)
+        scores_post = sample_round_scores_for_players(
+            player_params, remaining_rounds, survivors, random_state=rng
+        )
         totals_post = scores_post.sum(axis=1)
 
         # Record post-cut round scores for survivors
