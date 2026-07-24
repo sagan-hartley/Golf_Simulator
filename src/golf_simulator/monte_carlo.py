@@ -6,6 +6,7 @@ probabilities per player.
 
 import pandas as pd
 
+from golf_simulator.distributions import add_skill_columns
 from golf_simulator.season import simulate_season
 
 # ── Monte Carlo wrapper ────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ def run_n_simulations(
         .sort_values("Win_pct", ascending=False)
         .reset_index(drop=True)
     )
+    results = add_skill_columns(results, player_params)
 
     if output_csv_path is not None:
         results.to_csv(output_csv_path, index=False)

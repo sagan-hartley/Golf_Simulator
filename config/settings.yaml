@@ -130,6 +130,13 @@ data:
   # Ignored if field_file (below) is set.
   season_dir: data/seasons
 
+  # OPTIONAL. Use only specific season files instead of every CSV in
+  # season_dir — e.g. to fit players on just the last three years. List
+  # the filenames (found inside season_dir) like:
+  #   season_files: [yr2023.csv, yr2024.csv, yr2025.csv]
+  # Leave commented out / null to use the whole folder.
+  season_files: null
+
   # Column name in each CSV that identifies the player.
   player_column: player
 

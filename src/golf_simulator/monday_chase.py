@@ -12,7 +12,7 @@ and how does that change with player skill and pool size.
 import numpy as np
 import pandas as pd
 
-from golf_simulator.distributions import sample_round_scores_for_players
+from golf_simulator.distributions import add_skill_columns, sample_round_scores_for_players
 from golf_simulator.domain import TournamentType
 from golf_simulator.monday_chase_settings import ChaseConfig
 from golf_simulator.points import top_n_with_ties
@@ -220,6 +220,7 @@ def run_n_monday_chases(
         .sort_values("Any_Parlay_pct", ascending=False)
         .reset_index(drop=True)
     )
+    results = add_skill_columns(results, aspirant_params)
 
     if output_csv_path is not None:
         results.to_csv(output_csv_path, index=False)

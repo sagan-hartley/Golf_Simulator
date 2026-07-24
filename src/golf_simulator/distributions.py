@@ -190,3 +190,62 @@ def simulate_and_compare_player(player_moments, player_params, player_id,
     out["diff"] = out["simulated"] - out["target"]
     out["pct_diff"] = out["diff"] / out["target"] * 100.0
     return out
+
+# ── Output helpers ─────────────────────────────────────────────────────────────
+
+
+def player_means(player_params: dict) -> dict:
+    """
+    Return each player's scoring-distribution mean, keyed by string id.
+
+    Parameters
+    ----------
+    player_params : dict
+        pid -> (a, loc, scale, weight).
+
+    Returns
+    -------
+    dict
+        str(pid) -> mean of that player's skew-normal scoring distribution.
+    """
+    return {
+        str(pid): float(skewnorm.mean(a, loc=loc, scale=scale))
+        for pid, (a, loc, scale, _weight) in player_params.items()
+    }
+
+
+def add_skill_columns(results_df: pd.DataFrame, player_params: dict,
+                      player_col: str = "Player") -> pd.DataFrame:
+    """
+    Insert ``Mean`` and ``Edge_vs_Field`` columns next to the player column.
+
+    Makes results easy to slice by skill in a spreadsheet -- e.g. sort by
+    ``Edge_vs_Field`` to see how a player one stroke better than the field
+    actually did.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Must contain `player_col`.
+    player_params : dict
+        pid -> (a, loc, scale, weight) for the players in `results_df`.
+    player_col : str
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of `results_df` with two new columns after `player_col`:
+        - ``Mean``: the player's scoring average.
+        - ``Edge_vs_Field``: strokes better than the average player in this
+          output (positive = a scoring advantage, since lower scores are
+          better).
+    """
+    means = player_means(player_params)
+    df = results_df.copy()
+    mean_series = df[player_col].astype(str).map(means)
+    field_mean = float(mean_series.mean())
+
+    insert_at = df.columns.get_loc(player_col) + 1
+    df.insert(insert_at, "Mean", mean_series.round(2))
+    df.insert(insert_at + 1, "Edge_vs_Field", (field_mean - mean_series).round(2))
+    return df

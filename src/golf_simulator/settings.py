@@ -81,6 +81,7 @@ class DataConfig:
     """Points at the historical round-score data used to fit player distributions."""
 
     season_dir: str = "data/seasons"
+    season_files: list | None = None
     player_column: str = "player"
     score_column: str = "score"
     field_file: str | None = None

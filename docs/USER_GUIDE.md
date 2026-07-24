@@ -140,7 +140,8 @@ yourself — for example, to ask "what if a field of 150 players all had
 roughly the same skill level?" instead of using real players.
 
 You do this with a second kind of CSV file, separate from the historical
-data, with **one row per player** and exactly these five columns:
+data, with **one row per player**. Only the first three columns are
+required; `skew` and `weight` are optional:
 
 | player_id | mean | variance | skew | weight |
 |---|---|---|---|---|
@@ -155,14 +156,15 @@ data, with **one row per player** and exactly these five columns:
 - **`variance`** — how spread out (inconsistent) their scores are. A bigger
   number means a less predictable player; `0` or a negative number isn't
   allowed.
-- **`skew`** — whether they lean toward more really-bad rounds (positive
-  skew) or more really-good rounds (negative skew). `0` means symmetric.
-  If you're not sure, `0` is a reasonable default.
-- **`weight`** — how often this player shows up in a simulated field,
-  relative to the others. Equal numbers (e.g. `1.0` for everyone) means
-  everyone is equally likely to be selected. This is the "participation"
-  knob — bump one player's `weight` up if you want them to show up more
-  often than the rest.
+- **`skew`** *(optional)* — whether they lean toward more really-bad rounds
+  (positive skew) or more really-good rounds (negative skew). If you leave
+  this column out entirely, it defaults to `0` (symmetric), which is a fine
+  starting point.
+- **`weight`** *(optional)* — how often this player shows up in a simulated
+  field, relative to the others. This is the "participation" knob — bump one
+  player's `weight` up to make them show up more often. If you leave the
+  column out entirely, everyone gets `1.0` (equally likely to be selected),
+  so the simplest possible field file is just `player_id, mean, variance`.
 
 An example file with 15 players is included at
 `data/custom_fields/example_field.csv` — open it in Excel to see the format
@@ -184,6 +186,21 @@ historical data, either delete that line or set it back to `null`.
 biggest tournament in your schedule (156, for a `REGULAR` event). If it
 doesn't, you'll get a clear error telling you how many more players you
 need, rather than the simulation just failing partway through.
+
+### (Optional) Using only specific seasons of history
+
+By default the simulator fits players on **every** CSV in `data/seasons/`.
+If you'd rather use just some years — say the most recent three — list the
+files under `season_files`:
+
+```yaml
+data:
+  season_files: [yr2023.csv, yr2024.csv, yr2025.csv]
+```
+
+Leave it out (or `null`) to use the whole folder. This works in every
+analysis's config file (wherever a pool of players is loaded from history),
+not just the season one.
 
 ## Running the simulation
 
@@ -218,6 +235,18 @@ Open the `outputs/` folder — you can open any of these directly in Excel:
 - **`mc_results.csv`** — the main output: for every player, their
   percentage chance of winning (`Win_pct`), finishing top 10, top 20, top
   50, and their average finishing rank, based on many simulated seasons.
+
+**Reading results by skill.** Every results file (all four analyses) now
+includes two extra columns right after the player name:
+
+- **`Mean`** — the player's scoring average.
+- **`Edge_vs_Field`** — how many strokes *better* than the field average
+  this player is (positive = an advantage; e.g. `+1.0` means a one-stroke
+  edge over the average player in that file).
+
+Open the CSV in Excel and sort by `Edge_vs_Field` to see exactly how a
+one-stroke edge translates into wins, card retention, or Q-School status —
+the skill sits right next to the outcome, ready to chart or pivot.
 
 ## Chasing Mondays
 

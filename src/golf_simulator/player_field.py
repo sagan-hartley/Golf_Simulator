@@ -43,7 +43,8 @@ def load_custom_field(
     ----------
     path : str or Path
         Location of the field CSV. Must have columns ``player_id``,
-        ``mean``, ``variance``, ``skew``, and ``weight`` (column names
+        ``mean``, and ``variance``. ``skew`` and ``weight`` are optional
+        and default to 0 and 1 respectively when absent (column names
         configurable via the ``*_col`` arguments).
     id_col, mean_col, var_col, skew_col, weight_col : str
         Column names to read.
@@ -67,16 +68,23 @@ def load_custom_field(
 
     df = pd.read_csv(path)
 
-    required_cols = (id_col, mean_col, var_col, skew_col, weight_col)
+    required_cols = (id_col, mean_col, var_col)
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
         raise FieldError(
             f"{path}: missing required column(s): {', '.join(missing_cols)}. "
-            f"Expected columns: {', '.join(required_cols)}."
+            f"Required columns: {', '.join(required_cols)} "
+            f"(optional: {skew_col} defaults to 0, {weight_col} defaults to 1)."
         )
 
     if df.empty:
         raise FieldError(f"{path}: field file has no rows.")
+
+    # skew and weight are optional -- fill sensible defaults when absent.
+    if skew_col not in df.columns:
+        df[skew_col] = 0.0
+    if weight_col not in df.columns:
+        df[weight_col] = 1.0
 
     duplicate_ids = df[id_col][df[id_col].duplicated()].unique().tolist()
     if duplicate_ids:
@@ -127,15 +135,49 @@ def load_custom_field(
     return build_player_generators(renamed)
 
 
+def _resolve_season_files(data_config) -> list:
+    """
+    Resolve which historical CSVs to use for a `DataConfig`.
+
+    If `data_config.season_files` is set, use exactly those files (each
+    resolved as-is if it exists, otherwise relative to `season_dir`) so a
+    caller can pick specific years. Otherwise use every ``*.csv`` in
+    `season_dir`.
+
+    Raises
+    ------
+    FieldError
+        If a listed file can't be found, or no CSVs are found in the folder.
+    """
+    listed = getattr(data_config, "season_files", None)
+    if listed:
+        resolved = []
+        for name in listed:
+            p = Path(name)
+            if not p.exists():
+                p = Path(data_config.season_dir) / name
+            if not p.exists():
+                raise FieldError(
+                    f"Season file not found: '{name}' (looked in {data_config.season_dir})."
+                )
+            resolved.append(str(p))
+        return sorted(resolved)
+
+    csv_paths = sorted(glob(str(Path(data_config.season_dir) / "*.csv")))
+    if not csv_paths:
+        raise FieldError(f"No CSV files found in {data_config.season_dir}")
+    return csv_paths
+
+
 def load_player_pool(data_config, participation_config) -> dict:
     """
     Build a player pool from a `DataConfig`, custom field or historical data.
 
-    Uses `load_custom_field` if `data_config.field_file` is set, otherwise
-    fits player distributions from historical season CSVs in
-    `data_config.season_dir` (same pipeline as the old inline logic in
-    `cli.py`). Shared by the `season` and `monday-chase` subcommands so both
-    can load one or more player pools identically.
+    Uses `load_custom_field` if `data_config.field_file` is set. Otherwise
+    fits player distributions from historical season CSVs -- either the
+    specific files named in `data_config.season_files`, or every CSV in
+    `data_config.season_dir`. Shared by all four analyses so each pool loads
+    identically.
 
     Parameters
     ----------
@@ -151,15 +193,13 @@ def load_player_pool(data_config, participation_config) -> dict:
     Raises
     ------
     FieldError
-        If a custom field file is invalid, or no historical CSVs are found
-        in `data_config.season_dir`.
+        If a custom field file is invalid, a listed season file is missing,
+        or no historical CSVs are found.
     """
     if data_config.field_file:
         return load_custom_field(data_config.field_file)
 
-    csv_paths = sorted(glob(str(Path(data_config.season_dir) / "*.csv")))
-    if not csv_paths:
-        raise FieldError(f"No CSV files found in {data_config.season_dir}")
+    csv_paths = _resolve_season_files(data_config)
 
     moments = compute_player_stats(
         csv_paths,

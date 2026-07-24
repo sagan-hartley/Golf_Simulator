@@ -14,7 +14,7 @@ outcome, and how much does the entry stage matter?
 import numpy as np
 import pandas as pd
 
-from golf_simulator.distributions import sample_round_scores_for_players
+from golf_simulator.distributions import add_skill_columns, sample_round_scores_for_players
 from golf_simulator.points import top_n_with_ties
 from golf_simulator.qschool_settings import QSchoolConfig
 
@@ -230,6 +230,7 @@ def run_qschool(
         .sort_values(["Player", "Start_Stage"])
         .reset_index(drop=True)
     )
+    results = add_skill_columns(results, aspirant_params)
 
     if output_csv_path is not None:
         results.to_csv(output_csv_path, index=False)

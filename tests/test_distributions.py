@@ -1,10 +1,16 @@
 """Tests for golf_simulator.distributions."""
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.stats import skewnorm
 
-from golf_simulator.distributions import _skew_from_delta, skewnorm_params_from_moments
+from golf_simulator.distributions import (
+    _skew_from_delta,
+    add_skill_columns,
+    player_means,
+    skewnorm_params_from_moments,
+)
 
 
 def test_zero_skew_returns_normal_params():
@@ -52,3 +58,26 @@ def test_invalid_skew_raises():
 def test_skew_from_delta_boundary_raises_zero_division():
     with pytest.raises(ZeroDivisionError):
         _skew_from_delta(1.26)
+
+
+def test_player_means_recovers_input_mean():
+    # a=0 skew-normal is just Normal(loc, scale), so its mean is loc.
+    params = {"A": (0.0, 70.0, 3.0, 1.0), "B": (0.0, 68.0, 3.0, 1.0)}
+    means = player_means(params)
+    assert means["A"] == pytest.approx(70.0)
+    assert means["B"] == pytest.approx(68.0)
+
+
+def test_add_skill_columns_edge_is_positive_for_better_players():
+    # Field mean is 70; A (68) is 2 strokes better -> +2 edge; C (72) is -2.
+    params = {"A": (0.0, 68.0, 3.0, 1.0), "B": (0.0, 70.0, 3.0, 1.0), "C": (0.0, 72.0, 3.0, 1.0)}
+    df = pd.DataFrame({"Player": ["A", "B", "C"], "Win_pct": [50.0, 30.0, 20.0]})
+
+    out = add_skill_columns(df, params)
+
+    # columns inserted right after Player
+    assert list(out.columns) == ["Player", "Mean", "Edge_vs_Field", "Win_pct"]
+    row = out.set_index("Player")
+    assert row.loc["A", "Mean"] == pytest.approx(68.0)
+    assert row.loc["A", "Edge_vs_Field"] == pytest.approx(2.0)   # better than field
+    assert row.loc["C", "Edge_vs_Field"] == pytest.approx(-2.0)  # worse than field

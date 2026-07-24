@@ -14,6 +14,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from golf_simulator.distributions import add_skill_columns
 from golf_simulator.domain import TournamentType
 from golf_simulator.season import play_event
 from golf_simulator.settings import DynamicWeightConfig
@@ -254,6 +255,7 @@ def run_n_alignment_seasons(
         .sort_values("Retained_Card_pct", ascending=False)
         .reset_index(drop=True)
     )
+    results = add_skill_columns(results, card_params)
 
     if output_csv_path is not None:
         results.to_csv(output_csv_path, index=False)
